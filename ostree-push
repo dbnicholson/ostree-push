@@ -1,0 +1,61 @@
+#!/usr/bin/python3
+
+from __future__ import print_function
+
+from argparse import ArgumentParser
+from enum import Enum
+from gi.repository import GLib
+import pushlib
+import struct
+import subprocess
+import sys
+
+aparser = ArgumentParser('Execute commands through ssh')
+aparser.add_argument('-u', '--username', help='remote username')
+aparser.add_argument('-p', '--password', help='remote passworkd')
+aparser.add_argument('hostname', help='remote hostname')
+aparser.add_argument('branch', nargs='*', help='branches to push')
+args = aparser.parse_args()
+
+ssh_cmd = ['ssh']
+if args.username:
+    ssh_cmd += ['-l', args.username]
+ssh_cmd += [args.hostname, 'ostree-receive']
+print('Executing', *ssh_cmd)
+ssh = subprocess.Popen(ssh_cmd, stdin=subprocess.PIPE,
+                       stdout=subprocess.PIPE)
+
+writer = pushlib.PushMessageWriter(ssh.stdin)
+reader = pushlib.PushMessageReader(ssh.stdout)
+cmd = pushlib.PushCommand(pushlib.PushCommandType.getrefs,
+                          { 'branches': GLib.Variant('as', args.branch) })
+writer.write(cmd)
+
+ret = None
+while True:
+    # while True:
+    #     data = sys.stdin.read(8192)
+    #     if data == '':
+    #         break
+    #     ssh.stdin.write(data)
+    command, args = reader.read()
+    print('Command:', command.name)
+    print('Args:', args)
+    break
+    # data = ssh.stdout.read(8192).decode()
+    # if data != '':
+    #     print(data)
+    #     sys.stdout.flush()
+    ret = ssh.poll()
+    if ret is not None:
+        break
+
+if ret is None:
+    ret = ssh.wait()
+if ret != 0:
+    print('Exiting with code', ret)
+    #print(ssh.stdout.readlines().decode())
+    #for line in ssh.stderr:
+    #    sys.stderr.write(line.decode())
+    #print(ssh.stderr.readlines().decode(), file=sys.stderr)
+    exit(ret)

@@ -1,0 +1,44 @@
+#!/usr/bin/python3
+
+from __future__ import print_function
+
+from argparse import ArgumentParser
+import pushlib
+from gi.repository import GLib
+import random
+import struct
+import sys
+
+def random_sha256():
+    return ''.join(['%x' % random.randint(0, 15) for n in range(64)])
+
+aparser = ArgumentParser(description='Receive pushed ostree objects')
+aparser.add_argument('--repo', help='repository path')
+args = aparser.parse_args()
+
+writer = pushlib.PushMessageWriter(sys.stdout.buffer)
+reader = pushlib.PushMessageReader(sys.stdin.buffer)
+
+while True:
+    recvcmd, recvargs = reader.read()
+    #name = pushlib.PushCommandType(recvcmd).name
+    if recvcmd == pushlib.PushCommandType.getrefs:
+        branches = recvargs['branches']
+        if not branches:
+            branches = ['master/i386', 'eos2.5/i386']
+        sendcmd = pushlib.PushCommandType.putrefs
+        refs = {}
+        for branch in branches:
+            refs[branch] = random_sha256()
+        sendargs = { 'refs': GLib.Variant('a{ss}', refs) }
+    else:
+        raise PushException('Cannot handle command'
+                            % pushlib.PushCommandType(recvcmd).name)
+    command = pushlib.PushCommand(sendcmd, sendargs)
+    writer.write(command)
+    #sys.stdout.write('Command: %s\n' % name)
+    #sys.stdout.write(str(variant))
+    #sys.stdout.buffer.write(data)
+    #sys.stdout.flush()
+    break
+ 
