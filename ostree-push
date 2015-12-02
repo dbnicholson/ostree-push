@@ -32,7 +32,7 @@ class OSTreePusher(object):
             _, self.refs = self.repo.list_refs(None, None)
         else:
             self.refs = {}
-            for branch in self.branches:
+            for branch in branches:
                 _, rev = self.repo.resolve_rev(branch, False)
                 self.refs[branch] = rev
 
