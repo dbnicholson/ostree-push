@@ -108,19 +108,12 @@ class OSTreePusher(object):
         remote_refs = {}
         update_refs = {}
 
-        # Get remote refs
-        sendcmd = PushCommandType.getrefs
-        sendargs = { 'branches': GLib.Variant('as', list(self.refs.keys())) }
-        command = PushCommand(sendcmd, sendargs)
-        self.writer.write(command)
-
-        # Receive remote refs
-        recvcmd, recvargs = self.reader.read()
-        if recvcmd is None:
-            raise PushException('Expected reply, got none')
-        if recvcmd != PushCommandType.putrefs:
-            raise PushException('Unexpected reply type', recvcmd.name)
-        remote_refs = recvargs.unpack()
+        # Receive remote info
+        args = self.reader.receive_info()
+        remote_mode = args['mode']
+        if remote_mode != OSTree.RepoMode.ARCHIVE_Z2:
+            raise PushException('Can only push to archive-z2 repos')
+        remote_refs = args['refs']
         for branch, rev in self.refs.items():
             remote_rev = remote_refs.get(branch, '0' * 64)
             if rev != remote_rev:
@@ -130,17 +123,11 @@ class OSTreePusher(object):
             return self.close()
 
         # Send update command
-        sendcmd = PushCommandType.update
-        sendargs = {}
         for branch, revs in update_refs.items():
             print('Updating', branch, revs[0], 'to', revs[1])
             needed = self.needed_commits(revs[0], revs[1])
             print('Will send commits', ' '.join(needed))
-            sendargs[branch] = GLib.Variant('a{ss}',
-                                            { 'from': revs[0],
-                                              'to': revs[1] })
-        command = PushCommand(sendcmd, sendargs)
-        self.writer.write(command)
+        self.writer.send_update(update_refs)
 
         return self.close()
 

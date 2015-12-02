@@ -27,45 +27,14 @@ class OSTreeReceiver(object):
         sys.stdout.close()
 
     def run(self):
-        update_refs = {}
-
-        # Wait for getrefs
-        recvcmd, recvargs = self.reader.read()
-        if recvcmd is None:
-            raise PushException('Expected reply, got none')
-        if recvcmd != PushCommandType.getrefs:
-            raise PushException('Unexpected reply type', recvcmd.name)
-
-        # Send back refs
-        sendcmd = PushCommandType.putrefs
-        branches = recvargs['branches']
-        if not branches:
-            _, refs = self.repo.list_refs(None, None)
-            # Re-encode revision to variant
-            for branch in refs:
-                refs[branch] = GLib.Variant('s', refs[branch])
-        else:
-            refs = {}
-            for branch in branches:
-                _, rev = self.repo.resolve_rev(branch, True)
-                if rev:
-                    refs[branch] = GLib.Variant('s', rev)
-        sendargs = refs
-        command = PushCommand(sendcmd, sendargs)
-        self.writer.write(command)
+        # Send info immediately
+        self.writer.send_info(self.repo)
 
         # Wait for update command
-        recvcmd, recvargs = self.reader.read()
-        if recvcmd is None:
-            # No update needed
-            return self.close()
-        if recvcmd != PushCommandType.update:
-            raise PushException('Unexpected reply type', recvcmd.name)
-        for branch in recvargs.keys():
-            fromrev = recvargs[branch]['from']
-            torev = recvargs[branch]['to']
-            update_refs[branch] = fromrev, torev
-            print('Will update', branch, fromrev, 'to', torev, file=sys.stderr)
+        update_refs = self.reader.receive_update()
+        for branch, revs in update_refs.items():
+            print('Will update', branch, revs[0], 'to', revs[1],
+                  file=sys.stderr)
 
 if __name__ == '__main__':
     aparser = ArgumentParser(description='Receive pushed ostree objects')

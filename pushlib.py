@@ -12,12 +12,10 @@ class PushException(Exception):
     pass
 
 class PushCommandType(Enum):
-    getrefs = 0
-    putrefs = 1
-    update = 2
-    getobjects = 3
-    putobject = 4
-    error = 5
+    info = 0
+    update = 1
+    putobject = 2
+    status = 3
 
 class PushCommandStatus(Enum):
     success = 0
@@ -89,6 +87,25 @@ class PushMessageWriter(object):
         self.file.write(msg)
         self.file.flush()
 
+    def send_info(self, repo):
+        cmdtype = PushCommandType.info
+        mode = repo.get_mode()
+        _, refs = repo.list_refs(None, None)
+        args = {
+            'mode': GLib.Variant('i', mode),
+            'refs': GLib.Variant('a{ss}', refs)
+        }
+        command = PushCommand(cmdtype, args)
+        self.write(command)
+
+    def send_update(self, refs):
+        cmdtype = PushCommandType.update
+        args = {}
+        for branch, revs in refs.items():
+            args[branch] = GLib.Variant('(ss)', revs)
+        command = PushCommand(cmdtype, args)
+        self.write(command)
+
 class PushMessageReader(object):
     def __init__(self, file, byteorder=sys.byteorder):
         self.file = file
@@ -130,6 +147,22 @@ class PushMessageReader(object):
         args = self.decode_message(msg, size, order)
 
         return cmdtype, args
+
+    def receive(self, allowed):
+        cmdtype, args = self.read()
+        if cmdtype is None:
+            raise PushException('Expected reply, got none')
+        if cmdtype not in allowed:
+            raise PushException('Unexpected reply type', cmdtype.name)
+        return cmdtype, args.unpack()
+
+    def receive_info(self):
+        cmdtype, args = self.receive([PushCommandType.info])
+        return args
+
+    def receive_update(self):
+        cmdtype, args = self.receive([PushCommandType.update])
+        return args
 
 # class PushCommandGetRefs(PushCommandBase):
 #     def __init__(self, branches):
