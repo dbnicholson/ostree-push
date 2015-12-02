@@ -16,6 +16,7 @@ class PushCommandType(Enum):
     update = 1
     putobject = 2
     status = 3
+    done = 4
 
 class PushCommandStatus(Enum):
     success = 0
@@ -106,6 +107,19 @@ class PushMessageWriter(object):
         command = PushCommand(cmdtype, args)
         self.write(command)
 
+    def send_status(self, result, message=''):
+        cmdtype = PushCommandType.status
+        args = {
+            'result': GLib.Variant('b', result),
+            'message': GLib.Variant('s', message)
+        }
+        command = PushCommand(cmdtype, args)
+        self.write(command)
+
+    def send_done(self):
+        command = PushCommand(PushCommandType.done, {})
+        self.write(command)
+
 class PushMessageReader(object):
     def __init__(self, file, byteorder=sys.byteorder):
         self.file = file
@@ -162,6 +176,14 @@ class PushMessageReader(object):
 
     def receive_update(self):
         cmdtype, args = self.receive([PushCommandType.update])
+        return args
+
+    def receive_status(self):
+        cmdtype, args = self.receive([PushCommandType.status])
+        return args
+
+    def receive_done(self):
+        cmdtype, args = self.receive([PushCommandType.done])
         return args
 
 # class PushCommandGetRefs(PushCommandBase):

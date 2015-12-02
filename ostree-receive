@@ -30,11 +30,36 @@ class OSTreeReceiver(object):
         # Send info immediately
         self.writer.send_info(self.repo)
 
-        # Wait for update command
-        update_refs = self.reader.receive_update()
+        # Wait for update or done command
+        cmdtype, args = self.reader.receive([PushCommandType.update,
+                                             PushCommandType.done])
+        if cmdtype == PushCommandType.done:
+            return 0
+        update_refs = args
         for branch, revs in update_refs.items():
-            print('Will update', branch, revs[0], 'to', revs[1],
-                  file=sys.stderr)
+            # Check that each branch can be updated appropriately
+            _, current = self.repo.resolve_rev(branch, True)
+            if current is None:
+                # From commit should be all 0s
+                if revs[0] != '0' *64:
+                    self.writer.send_status(False,
+                                            'Invalid from commit %s '
+                                            'for new branch %s'
+                                            %(revs[0], branch))
+                    return 1
+            elif revs[0] != current:
+                self.writer.send_status(False,
+                                        'Branch %s is at %s, not %s'
+                                        %(branch, current, revs[0]))
+                return 1
+
+        # All updates valid
+        self.writer.send_status(True)
+
+        # Wait for done
+        self.reader.receive_done()
+
+        return 0
 
 if __name__ == '__main__':
     aparser = ArgumentParser(description='Receive pushed ostree objects')
@@ -42,4 +67,4 @@ if __name__ == '__main__':
     args = aparser.parse_args()
 
     receiver = OSTreeReceiver(args.repo)
-    receiver.run()
+    exit(receiver.run())

@@ -120,6 +120,7 @@ class OSTreePusher(object):
                 update_refs[branch] = remote_rev, rev
         if len(update_refs) == 0:
             print('Nothing to update')
+            self.writer.send_done()
             return self.close()
 
         # Send update command
@@ -128,6 +129,14 @@ class OSTreePusher(object):
             needed = self.needed_commits(revs[0], revs[1])
             print('Will send commits', ' '.join(needed))
         self.writer.send_update(update_refs)
+
+        # Receive status
+        args = self.reader.receive_status()
+        if not args['result']:
+            raise PushException(args['message'])
+
+        # Tell the receiver to exit
+        self.writer.send_done()
 
         return self.close()
 
@@ -139,7 +148,4 @@ if __name__ == '__main__':
     args = aparser.parse_args()
 
     pusher = OSTreePusher(args.repo, args.remote, args.branch)
-    ret = pusher.run()
-
-    print('Exiting with code', ret)
-    exit(ret)
+    exit(pusher.run())
