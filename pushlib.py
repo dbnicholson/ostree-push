@@ -149,8 +149,9 @@ class PushMessageReader(object):
 
     def read(self):
         header = self.file.read(4)
-        if len(header) != 4:
-            raise PushException('Expected 4 bytes, but got %d' % len(header))
+        if len(header) == 0:
+            # Remote end quit
+            return None, None
         order, version, size = self.decode_header(header)
         msg = self.file.read(size)
         if len(msg) != size:

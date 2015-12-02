@@ -4,58 +4,132 @@ from __future__ import print_function
 
 from argparse import ArgumentParser
 from enum import Enum
-from gi.repository import GLib
-import pushlib
-import struct
+from gi.repository import GLib, Gio, OSTree
+from pushlib import *
 import subprocess
 import sys
+from urllib.parse import urlparse
 
-aparser = ArgumentParser('Execute commands through ssh')
-aparser.add_argument('-u', '--username', help='remote username')
-aparser.add_argument('-p', '--password', help='remote passworkd')
-aparser.add_argument('hostname', help='remote hostname')
-aparser.add_argument('branch', nargs='*', help='branches to push')
-args = aparser.parse_args()
+class OSTreePusher(object):
+    def __init__(self, repopath, remotepath, branches=[]):
+        self.repopath = repopath
+        self.remotepath = remotepath
 
-ssh_cmd = ['ssh']
-if args.username:
-    ssh_cmd += ['-l', args.username]
-ssh_cmd += [args.hostname, 'ostree-receive']
-print('Executing', *ssh_cmd)
-ssh = subprocess.Popen(ssh_cmd, stdin=subprocess.PIPE,
-                       stdout=subprocess.PIPE)
+        self.remote_host = None
+        self.remote_user = None
+        self.remote_repo = None
+        self.remote_port = None
+        self._set_remote_args()
 
-writer = pushlib.PushMessageWriter(ssh.stdin)
-reader = pushlib.PushMessageReader(ssh.stdout)
-cmd = pushlib.PushCommand(pushlib.PushCommandType.getrefs,
-                          { 'branches': GLib.Variant('as', args.branch) })
-writer.write(cmd)
+        if self.repopath is None:
+            self.repo = OSTree.Repo.new_default()
+        else:
+            self.repo = OSTree.Repo.new(Gio.File.new_for_path(self.repopath))
+        self.repo.open(None)
 
-ret = None
-while True:
-    # while True:
-    #     data = sys.stdin.read(8192)
-    #     if data == '':
-    #         break
-    #     ssh.stdin.write(data)
-    command, args = reader.read()
-    print('Command:', command.name)
-    print('Args:', args)
-    break
-    # data = ssh.stdout.read(8192).decode()
-    # if data != '':
-    #     print(data)
-    #     sys.stdout.flush()
-    ret = ssh.poll()
-    if ret is not None:
-        break
+        # Enumerate branches to push
+        if len(branches) == 0:
+            _, self.refs = self.repo.list_refs(None, None)
+        else:
+            self.refs = {}
+            for branch in self.branches:
+                _, rev = self.repo.resolve_rev(branch, False)
+                self.refs[branch] = rev
 
-if ret is None:
-    ret = ssh.wait()
-if ret != 0:
+        # Start ssh
+        ssh_cmd = ['ssh']
+        if self.remote_user:
+            ssh_cmd += ['-l', self.remote_user]
+        if self.remote_port:
+            ssh_cmd += ['-p', self.remote_port]
+        ssh_cmd += [self.remote_host, 'ostree-receive',
+                    '--repo=%s' % self.remote_path]
+        #print('Executing', *ssh_cmd)
+        self.ssh = subprocess.Popen(ssh_cmd, stdin=subprocess.PIPE,
+                                    stdout=subprocess.PIPE)
+
+        self.writer = PushMessageWriter(self.ssh.stdin)
+        self.reader = PushMessageReader(self.ssh.stdout)
+
+    def _set_remote_args(self):
+        url = urlparse(self.remotepath)
+        if url.netloc:
+            if url.scheme != 'ssh':
+                raise PushException('Only URL scheme ssh is allowed, '
+                                    'not "%s"' % url.scheme)
+            self.remote_host = url.hostname
+            self.remote_user = url.username
+            self.remote_repo = url.path
+            self.remote_port = url.port
+        else:
+            # Scp/git style remote (user@hostname:path)
+            self.remote_port = None
+            parts = self.remotepath.split('@', 1)
+            if len(parts) > 1:
+                self.remote_user = parts[0]
+                remainder = parts[1]
+            else:
+                self.remote_user = None
+                remainder = parts[0]
+            parts = remainder.split(':', 1)
+            if len(parts) != 2:
+                raise PushException('Remote repository "%s" does not '
+                                    'contain a hostname and path separated '
+                                    'by ":"' % self.remotepath)
+            self.remote_host, self.remote_path = parts
+
+    def close(self):
+        self.ssh.stdin.close()
+        return self.ssh.wait()
+
+    def run(self):
+        remote_refs = {}
+        update_refs = {}
+
+        # Get remote refs
+        sendcmd = PushCommandType.getrefs
+        sendargs = { 'branches': GLib.Variant('as', list(self.refs.keys())) }
+        command = PushCommand(sendcmd, sendargs)
+        self.writer.write(command)
+
+        # Receive remote refs
+        recvcmd, recvargs = self.reader.read()
+        if recvcmd is None:
+            raise PushException('Expected reply, got none')
+        if recvcmd != PushCommandType.putrefs:
+            raise PushException('Unexpected reply type',
+                                recvcmd.name)
+        remote_refs = recvargs
+        for branch, rev in self.refs.items():
+            remote_rev = remote_refs.get(branch, '0' * 64)
+            if rev != remote_rev:
+                update_refs[branch] = remote_rev, rev
+        if len(update_refs) == 0:
+            print('Nothing to update')
+            return self.close()
+
+        # Send update command
+        sendcmd = PushCommandType.update
+        sendargs = {}
+        for branch, revs in update_refs.items():
+            print('Updating', branch, revs[0], 'to', revs[1])
+            sendargs[branch] = GLib.Variant('a{ss}',
+                                            { 'from': revs[0],
+                                              'to': revs[1] })
+        command = PushCommand(sendcmd, sendargs)
+        self.writer.write(command)
+
+        return self.close()
+
+if __name__ == '__main__':
+    aparser = ArgumentParser(description='Execute commands through ssh')
+    aparser.add_argument('--repo', help='local repository')
+    aparser.add_argument('remote', help='remote repository')
+    aparser.add_argument('branch', nargs='*', help='branches to push')
+    args = aparser.parse_args()
+
+    pusher = OSTreePusher(args.repo, args.remote, args.branch)
+    ret = pusher.run()
+
     print('Exiting with code', ret)
-    #print(ssh.stdout.readlines().decode())
-    #for line in ssh.stderr:
-    #    sys.stderr.write(line.decode())
-    #print(ssh.stderr.readlines().decode(), file=sys.stderr)
     exit(ret)
