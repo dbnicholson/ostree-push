@@ -78,6 +78,28 @@ class OSTreePusher(object):
                                     'by ":"' % self.remotepath)
             self.remote_host, self.remote_path = parts
 
+    def needed_commits(self, remote, local):
+        needed = []
+        parent = local
+        if remote == '0' * 64:
+            # Nonexistent remote branch, use None for convenience
+            remote = None
+        while parent != remote:
+            needed.append(parent)
+            _, commit = self.repo.load_variant_if_exists(OSTree.ObjectType.COMMIT,
+                                                         parent)
+            if commit is None:
+                raise PushException('Shallow history from commit %s does '
+                                    'not contain remote commit %s'
+                                    %(local, remote))
+            parent = OSTree.commit_get_parent(commit)
+            if parent is None:
+                break
+        if remote is not None and parent != remote:
+            raise PushException('Remote commit %s not descendent of '
+                                'commit %s' %(remote, local))
+        return needed
+
     def close(self):
         self.ssh.stdin.close()
         return self.ssh.wait()
@@ -113,6 +135,8 @@ class OSTreePusher(object):
         sendargs = {}
         for branch, revs in update_refs.items():
             print('Updating', branch, revs[0], 'to', revs[1])
+            needed = self.needed_commits(revs[0], revs[1])
+            print('Will send commits', ' '.join(needed))
             sendargs[branch] = GLib.Variant('a{ss}',
                                             { 'from': revs[0],
                                               'to': revs[1] })
