@@ -34,8 +34,7 @@ class OSTreeReceiver(object):
         if recvcmd is None:
             raise PushException('Expected reply, got none')
         if recvcmd != PushCommandType.getrefs:
-            raise PushException('Unexpected reply type',
-                                recvcmd.name)
+            raise PushException('Unexpected reply type', recvcmd.name)
 
         # Send back refs
         sendcmd = PushCommandType.putrefs
@@ -61,9 +60,8 @@ class OSTreeReceiver(object):
             # No update needed
             return self.close()
         if recvcmd != PushCommandType.update:
-            raise PushException('Unexpected reply type',
-                                recvcmd.name)
-        for branch in recvargs:
+            raise PushException('Unexpected reply type', recvcmd.name)
+        for branch in recvargs.keys():
             fromrev = recvargs[branch]['from']
             torev = recvargs[branch]['to']
             update_refs[branch] = fromrev, torev

@@ -119,9 +119,8 @@ class OSTreePusher(object):
         if recvcmd is None:
             raise PushException('Expected reply, got none')
         if recvcmd != PushCommandType.putrefs:
-            raise PushException('Unexpected reply type',
-                                recvcmd.name)
-        remote_refs = recvargs
+            raise PushException('Unexpected reply type', recvcmd.name)
+        remote_refs = recvargs.unpack()
         for branch, rev in self.refs.items():
             remote_rev = remote_refs.get(branch, '0' * 64)
             if rev != remote_rev:

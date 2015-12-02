@@ -5,6 +5,9 @@ from gi.repository import GLib
 import struct
 import sys
 
+PROTO_VERSION = 0
+HEADER_SIZE = 5
+
 class PushException(Exception):
     pass
 
@@ -20,60 +23,30 @@ class PushCommandStatus(Enum):
     success = 0
     failed = 1
 
-def msg_byteorder(sys_byteorder=None):
-    if sys_byteorder is None:
-        sys_byteorder = sys.byteorder
-    if sys_byteorder not in ['big', 'little']:
+def msg_byteorder(sys_byteorder=sys.byteorder):
+    if sys_byteorder == 'little':
+        return 'l'
+    elif sys_byteorder == 'big':
+        return 'B'
+    else:
         raise PushException('Unrecognized system byteorder %s'
                             % sys_byteorder)
-    if sys_byteorder == 'little':
-        return b'l'
-    else:
-        return b'B'
 
 def sys_byteorder(msg_byteorder):
-    if msg_byteorder not in [b'B', b'l']:
+    if msg_byteorder == 'l':
+        return 'little'
+    elif msg_byteorder == 'B':
+        return 'big'
+    else:
         raise PushException('Unrecognized message byteorder %s'
                             % msg_byteorder)
-    if msg_byteorder == b'l':
-        return 'little'
-    else:
-        return 'big'
-
-def struct_byteorder(sys_byteorder=None):
-    if sys_byteorder is None:
-        sys_byteorder = sys.byteorder
-    if sys_byteorder not in ['big', 'little']:
-        raise PushException('Unrecognized system byteorder %s'
-                            % sys_byteorder)
-    if sys_byteorder == 'little':
-        return '<'
-    else:
-        return '>'
-
-def decode_header(header):
-    if len(header) != 4:
-        raise Exception('Header is %d bytes, not 4' % len(header))
-    order = chr(header[0])
-    if order not in ['l', 'B']:
-        raise Exception('Unrecognized byte order %s in header' % order)
-    version = int(chr(header[1]))
-    if version != 1:
-        raise Exception('Unsupported header version %d' % version)
-    if order == 'l':
-        fmt = '<H'
-    else:
-        fmt = '>H'
-    vlen = struct.unpack_from(fmt, header, 2)[0]
-    return order, version, vlen
 
 class PushCommand(object):
-    def __init__(self, command, args):
-        self.command = command
+    def __init__(self, cmdtype, args):
+        self.cmdtype = cmdtype
         self.args = args
-        self.validate(self.command, self.args)
-        self.variant = GLib.Variant('(ua{sv})', (self.command.value,
-                                                 self.args))
+        self.validate(self.cmdtype, self.args)
+        self.variant = GLib.Variant('a{sv}', self.args)
 
     @staticmethod
     def validate(command, args):
@@ -92,8 +65,13 @@ class PushMessageWriter(object):
         self.file = file
         self.byteorder = byteorder
         self.msg_byteorder = msg_byteorder(self.byteorder)
-        self.struct_byteorder = struct_byteorder(self.byteorder)
-        self.proto_version = b'1'
+
+    def encode_header(self, cmdtype, size):
+        header = self.msg_byteorder.encode() + \
+                 PROTO_VERSION.to_bytes(1, self.byteorder) + \
+                 cmdtype.value.to_bytes(1, self.byteorder) + \
+                 size.to_bytes(2, self.byteorder)
+        return header
 
     def encode_message(self, command):
         if not isinstance(command, PushCommand):
@@ -102,8 +80,7 @@ class PushMessageWriter(object):
         size = data.get_size()
 
         # Build the header
-        header = self.msg_byteorder + self.proto_version + \
-                 struct.pack(self.struct_byteorder + 'H', size)
+        header = self.encode_header(command.cmdtype, size)
 
         return header + data.get_data()
 
@@ -116,49 +93,43 @@ class PushMessageReader(object):
     def __init__(self, file, byteorder=sys.byteorder):
         self.file = file
         self.byteorder = byteorder
-        self.proto_version = 1
 
     def decode_header(self, header):
-        if len(header) != 4:
-            raise Exception('Header is %d bytes, not 4' % len(header))
-        order = chr(header[0])
-        if order not in ['l', 'B']:
-            raise Exception('Unrecognized byte order %s in header' % order)
-        version = int(chr(header[1]))
-        if version != self.proto_version:
-            raise Exception('Unsupported header version %d' % version)
-        if order == 'l':
-            fmt = '<H'
-        else:
-            fmt = '>H'
-        vlen = struct.unpack_from(fmt, header, 2)[0]
-        return order, version, vlen
+        if len(header) != HEADER_SIZE:
+            raise Exception('Header is %d bytes, not %d'
+                            %(len(header), HEADER_SIZE))
+        order = sys_byteorder(chr(header[0]))
+        version = int(header[1])
+        if version != PROTO_VERSION:
+            raise Exception('Unsupported protocol version %d' % version)
+        cmdtype = PushCommandType(int(header[2]))
+        vlen = int.from_bytes(header[3:], order)
+        return order, version, cmdtype, vlen
 
     def decode_message(self, message, size, order):
         if len(message) != size:
             raise Exception('Expected %d bytes, but got %d'
                             %(size, len(message)))
         data = GLib.Bytes.new(message)
-        variant = GLib.Variant.new_from_bytes(GLib.VariantType.new('(ua{sv})'),
+        variant = GLib.Variant.new_from_bytes(GLib.VariantType.new('a{sv}'),
                                               data, False)
-        if (order == 'l' and self.byteorder != 'little') or \
-           (order == 'B' and self.byteorder != 'big'):
+        if order != self.byteorder:
             variant = GLib.Variant.byteswap(variant)
 
         return variant
 
     def read(self):
-        header = self.file.read(4)
+        header = self.file.read(HEADER_SIZE)
         if len(header) == 0:
             # Remote end quit
             return None, None
-        order, version, size = self.decode_header(header)
+        order, version, cmdtype, size = self.decode_header(header)
         msg = self.file.read(size)
         if len(msg) != size:
             raise PushException('Did not receive full message')
-        command, args = self.decode_message(msg, size, order)
+        args = self.decode_message(msg, size, order)
 
-        return PushCommandType(command), args
+        return cmdtype, args
 
 # class PushCommandGetRefs(PushCommandBase):
 #     def __init__(self, branches):
