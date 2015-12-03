@@ -72,6 +72,19 @@ class OSTreeReceiver(object):
             received_objects.append(args['object'])
             self.writer.send_status(True)
 
+        # Got all objects, move them to the object store
+        for obj in received_objects:
+            tmp_path = ostree_tmp_path(self.repo, obj)
+            obj_path = ostree_object_path(self.repo, obj)
+            os.makedirs(os.path.dirname(obj_path), exist_ok=True)
+            logging.info('Renaming {} to {}'.format(tmp_path, obj_path))
+            os.rename(tmp_path, obj_path)
+
+        # Finally, update the refs
+        for branch, revs in update_refs.items():
+            logging.info('Setting ref {} to {}'.format(branch, revs[1]))
+            self.repo.set_ref_immediate(None, branch, revs[1], None)
+
         return 0
 
 if __name__ == '__main__':
