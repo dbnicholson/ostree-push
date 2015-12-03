@@ -23,6 +23,9 @@ class OSTreeReceiver(object):
         self.writer = PushMessageWriter(sys.stdout.buffer)
         self.reader = PushMessageReader(sys.stdin.buffer)
 
+        # Set a sane umask before writing any objects
+        os.umask(0o0022)
+
     def close(self):
         sys.stdout.close()
 
