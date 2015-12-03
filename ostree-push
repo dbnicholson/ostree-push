@@ -78,14 +78,13 @@ class OSTreePusher(object):
                                     'by ":"' % self.remotepath)
             self.remote_host, self.remote_path = parts
 
-    def needed_commits(self, remote, local):
-        needed = []
+    def needed_commits(self, remote, local, needed):
         parent = local
         if remote == '0' * 64:
             # Nonexistent remote branch, use None for convenience
             remote = None
         while parent != remote:
-            needed.append(parent)
+            needed.add(parent)
             _, commit = self.repo.load_variant_if_exists(OSTree.ObjectType.COMMIT,
                                                          parent)
             if commit is None:
@@ -98,7 +97,28 @@ class OSTreePusher(object):
         if remote is not None and parent != remote:
             raise PushException('Remote commit %s not descendent of '
                                 'commit %s' %(remote, local))
-        return needed
+
+    def needed_objects(self, commits):
+        objects = set()
+        for rev in commits:
+            _, reachable = self.repo.traverse_commit(rev, 0, None)
+            for obj in reachable:
+                objname = OSTree.object_to_string(obj[0], obj[1])
+                objects.add(objname)
+                if obj[1] == OSTree.ObjectType.COMMIT:
+                    # Add in detached metadata
+                    metaobj = objname + 'meta'
+                    metapath = ostree_object_path(self.repo, metaobj)
+                    if os.path.exists(metapath):
+                        objects.add(metaobj)
+
+                    # Add in Endless compat files
+                    for suffix in ['sig', 'sizes2']:
+                        metaobj = obj[0] + '.' + suffix
+                        metapath = ostree_object_path(self.repo, metaobj)
+                        if os.path.exists(metapath):
+                            objects.add(metaobj)
+        return objects
 
     def close(self):
         self.ssh.stdin.close()
@@ -124,16 +144,21 @@ class OSTreePusher(object):
             return self.close()
 
         # Send update command
-        for branch, revs in update_refs.items():
-            print('Updating', branch, revs[0], 'to', revs[1])
-            needed = self.needed_commits(revs[0], revs[1])
-            print('Will send commits', ' '.join(needed))
         self.writer.send_update(update_refs)
 
         # Receive status
         args = self.reader.receive_status()
         if not args['result']:
             raise PushException(args['message'])
+
+        # Collect commits and objects to push
+        commits = set()
+        for branch, revs in update_refs.items():
+            print('Updating', branch, revs[0], 'to', revs[1])
+            needed = self.needed_commits(revs[0], revs[1], commits)
+        objects = self.needed_objects(commits)
+        print('Will send objects:')
+        print('\n'.join(list(objects)))
 
         # Tell the receiver to exit
         self.writer.send_done()
