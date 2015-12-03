@@ -20,10 +20,6 @@ class PushCommandType(Enum):
     status = 3
     done = 4
 
-class PushCommandStatus(Enum):
-    success = 0
-    failed = 1
-
 def msg_byteorder(sys_byteorder=sys.byteorder):
     if sys_byteorder == 'little':
         return 'l'
@@ -248,56 +244,3 @@ class PushMessageReader(object):
     def receive_done(self):
         cmdtype, args = self.receive([PushCommandType.done])
         return args
-
-# class PushCommandGetRefs(PushCommandBase):
-#     def __init__(self, branches):
-#         command = PushCommandType.getrefs
-#         args = {
-#             'branches': GLib.Variant('as', branches)
-#         }
-#         super(PushCommandGetRefs, self).__init__(command, args)
-
-# class PushCommandPutRefs(PushCommandBase):
-#     def __init__(self, refs):
-#         command = PushCommandType.putrefs
-#         args = {
-#             'refs': GLib.Variant('a{ss}', refs)
-#         }
-#         super(PushCommandPutRefs, self).__init__(command, args)
-
-# class PushCommandUpdate(PushCommandBase):
-#     def __init__(self, commit, parent, branch):
-#         command = PushCommandType.update
-#         args = {
-#             'commit': GLib.Variant('s', commit),
-#             'parent': GLib.Variant('s', parent),
-#             'branch': GLib.Variant('s', branch),
-#         }
-#         super(PushCommandUpdate, self).__init__(command, args)
-
-# class PushCommandGetObjects(PushCommandBase):
-#     def __init__(self, objects):
-#         command = PushCommandType.getobject
-#         args = {
-#             'objects': GLib.Variant('as', objects),
-#         }
-#         super(PushCommandGetObject, self).__init__(command, args)
-
-# class PushCommandPutObject(PushCommandBase):
-#     def __init__(self, obj, size):
-#         command = PushCommandType.putobject
-#         args = {
-#             'object': GLib.Variant('s', obj),
-#             'size': GLib.Variant('t', size),
-#         }
-#         super(PushCommandPutObject, self).__init__(command, args)
-
-# class PushCommandError(PushCommandBase):
-#     def __init__(self, obj, error, message):
-#         command = PushCommandType.error
-#         args = {
-#             'object': GLib.Variant('s', obj),
-#             'error': GLib.Variant('u', error.value),
-#             'message': GLib.Variant('s', message),
-#         }
-#         super(PushCommandError, self).__init__(command, args)
