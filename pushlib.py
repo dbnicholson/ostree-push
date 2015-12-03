@@ -45,6 +45,10 @@ def ostree_object_path(repo, obj):
     repodir = repo.get_path().get_path()
     return os.path.join(repodir, 'objects', obj[0:2], obj[2:])
 
+def ostree_tmp_path(repo, obj):
+    repodir = repo.get_path().get_path()
+    return os.path.join(repodir, 'tmp', obj)
+
 class PushCommand(object):
     def __init__(self, cmdtype, args):
         self.cmdtype = cmdtype
