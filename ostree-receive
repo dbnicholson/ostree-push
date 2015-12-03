@@ -64,7 +64,19 @@ class OSTreeReceiver(object):
 if __name__ == '__main__':
     aparser = ArgumentParser(description='Receive pushed ostree objects')
     aparser.add_argument('--repo', help='repository path')
+    aparser.add_argument('-v', '--verbose', action='store_true',
+                         help='enable verbose output')
+    aparser.add_argument('--debug', action='store_true',
+                         help='enable debugging output')
     args = aparser.parse_args()
+
+    loglevel = logging.WARNING
+    if args.verbose:
+        loglevel = logging.INFO
+    if args.debug:
+        loglevel = logging.DEBUG
+    logging.basicConfig(format='%(module)s: %(funcName)s: %(levelname)s: %(message)s',
+                        level=loglevel, stream=sys.stderr)
 
     receiver = OSTreeReceiver(args.repo)
     exit(receiver.run())

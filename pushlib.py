@@ -2,6 +2,7 @@
 
 from enum import Enum
 from gi.repository import GLib
+import logging
 import os
 import struct
 import sys

@@ -5,15 +5,19 @@ from __future__ import print_function
 from argparse import ArgumentParser
 from enum import Enum
 from gi.repository import GLib, Gio, OSTree
+import logging
 from pushlib import *
 import subprocess
 import sys
 from urllib.parse import urlparse
 
 class OSTreePusher(object):
-    def __init__(self, repopath, remotepath, branches=[]):
+    def __init__(self, repopath, remotepath, branches=[], verbose=False,
+                 debug=False):
         self.repopath = repopath
         self.remotepath = remotepath
+        self.verbose = verbose
+        self.debug = debug
 
         self.remote_host = None
         self.remote_user = None
@@ -44,7 +48,11 @@ class OSTreePusher(object):
             ssh_cmd += ['-p', self.remote_port]
         ssh_cmd += [self.remote_host, 'ostree-receive',
                     '--repo=%s' % self.remote_path]
-        #print('Executing', *ssh_cmd)
+        if self.verbose:
+            ssh_cmd += ['--verbose']
+        if self.debug:
+            ssh_cmd += ['--debug']
+        logging.info('Executing {}'.format(' '.join(ssh_cmd)))
         self.ssh = subprocess.Popen(ssh_cmd, stdin=subprocess.PIPE,
                                     stdout=subprocess.PIPE)
 
@@ -171,9 +179,22 @@ class OSTreePusher(object):
 if __name__ == '__main__':
     aparser = ArgumentParser(description='Execute commands through ssh')
     aparser.add_argument('--repo', help='local repository')
+    aparser.add_argument('-v', '--verbose', action='store_true',
+                         help='enable verbose output')
+    aparser.add_argument('--debug', action='store_true',
+                         help='enable debugging output')
     aparser.add_argument('remote', help='remote repository')
     aparser.add_argument('branch', nargs='*', help='branches to push')
     args = aparser.parse_args()
 
-    pusher = OSTreePusher(args.repo, args.remote, args.branch)
+    loglevel = logging.WARNING
+    if args.verbose:
+        loglevel = logging.INFO
+    if args.debug:
+        loglevel = logging.DEBUG
+    logging.basicConfig(format='%(module)s: %(funcName)s: %(levelname)s: %(message)s',
+                        level=loglevel, stream=sys.stderr)
+
+    pusher = OSTreePusher(args.repo, args.remote, args.branch,
+                          args.verbose, args.debug)
     exit(pusher.run())
