@@ -8,8 +8,9 @@ repository. Then the commits and all their child objects need to be sent
 to the remote repository. Once all the objects are on the remote, the
 refs files can be updated.
 
-The protocol is based on Git's upload pack. The message format is based
-on D-Bus using GVariant. See [References](#References) for background.
+The current protocol version is 0. The protocol is based on Git's upload
+pack. The message format is based on D-Bus using GVariant. See
+[References](#References) for background.
 
 Message Format
 ==============
