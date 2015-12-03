@@ -104,8 +104,10 @@ class OSTreePusher(object):
             _, reachable = self.repo.traverse_commit(rev, 0, None)
             for obj in reachable:
                 objname = OSTree.object_to_string(obj[0], obj[1])
-                objects.add(objname)
-                if obj[1] == OSTree.ObjectType.COMMIT:
+                if obj[1] == OSTree.ObjectType.FILE:
+                    # Make this a filez since we're archive-z2
+                    objname += 'z'
+                elif obj[1] == OSTree.ObjectType.COMMIT:
                     # Add in detached metadata
                     metaobj = objname + 'meta'
                     metapath = ostree_object_path(self.repo, metaobj)
@@ -118,6 +120,7 @@ class OSTreePusher(object):
                         metapath = ostree_object_path(self.repo, metaobj)
                         if os.path.exists(metapath):
                             objects.add(metaobj)
+                objects.add(objname)
         return objects
 
     def close(self):
