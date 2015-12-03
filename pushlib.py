@@ -117,6 +117,34 @@ class PushMessageWriter(object):
         command = PushCommand(cmdtype, args)
         self.write(command)
 
+    def send_putobject(self, repo, obj):
+        cmdtype = PushCommandType.putobject
+        objpath = ostree_object_path(repo, obj)
+        size = os.stat(objpath).st_size
+        args = {
+            'object': GLib.Variant('s', obj),
+            'size': GLib.Variant('t', size)
+        }
+        command = PushCommand(cmdtype, args)
+        self.write(command)
+
+        # Now write the file after the command
+        logging.info('Beginning send of {} size {} to {}'
+                     .format(obj, size, objpath))
+        with open(objpath, 'rb') as objf:
+            remaining = size
+            while remaining > 0:
+                chunk = min(2 ** 20, remaining)
+                buf = objf.read(chunk)
+                logging.info('Sending {} bytes for {}'
+                             .format(len(buf), obj))
+                logging.debug('Buffer contents: {}'.format(buf))
+                self.file.write(buf)
+                self.file.flush()
+                remaining -= chunk
+                logging.info('{} bytes remaining for {}'
+                             .format(remaining, obj))
+
     def send_status(self, result, message=''):
         cmdtype = PushCommandType.status
         args = {
@@ -186,6 +214,31 @@ class PushMessageReader(object):
 
     def receive_update(self):
         cmdtype, args = self.receive([PushCommandType.update])
+        return args
+
+    def receive_putobject_data(self, repo, args):
+        # Read in the object and store it in the tmp directory
+        obj = args['object']
+        size = args['size']
+        tmppath = ostree_tmp_path(repo, obj)
+        logging.info('Beginning receive of {} size {} to {}'
+                     .format(obj, size, tmppath))
+        with open(tmppath, 'wb') as tmpf:
+            remaining = size
+            while remaining > 0:
+                chunk = min(2 ** 20, remaining)
+                buf = self.file.read(chunk)
+                logging.info('Sending {} bytes for {}'
+                             .format(len(buf), obj))
+                logging.debug('Buffer contents: {}'.format(buf))
+                tmpf.write(buf)
+                remaining -= chunk
+                logging.info('{} bytes remaining for {}'
+                             .format(remaining, obj))
+
+    def receive_putobject(self, repo):
+        cmdtype, args = self.receive([PushCommandType.putobject])
+        self.receive_putobject_data(repo, args)
         return args
 
     def receive_status(self):
