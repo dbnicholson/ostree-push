@@ -168,8 +168,15 @@ class OSTreePusher(object):
             print('Updating', branch, revs[0], 'to', revs[1])
             needed = self.needed_commits(revs[0], revs[1], commits)
         objects = self.needed_objects(commits)
-        print('Will send objects:')
-        print('\n'.join(list(objects)))
+
+        # Send all the objects to receiver, checking status after each
+        for obj in objects:
+            self.writer.send_putobject(self.repo, obj)
+            args = self.reader.receive_status()
+            logging.info('Received status {} for {}'
+                         .format(args['result'], obj))
+            if not args['result']:
+                raise PushException(args['message'])
 
         # Tell the receiver to exit
         self.writer.send_done()

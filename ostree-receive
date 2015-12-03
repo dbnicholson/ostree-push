@@ -59,8 +59,18 @@ class OSTreeReceiver(object):
         # All updates valid
         self.writer.send_status(True)
 
-        # Wait for done
-        self.reader.receive_done()
+        # Wait for putobject or done command
+        received_objects = []
+        while True:
+            cmdtype, args = self.reader.receive([PushCommandType.putobject,
+                                                 PushCommandType.done])
+            if cmdtype == PushCommandType.done:
+                logging.info('Received done, exiting putobject loop')
+                break
+
+            self.reader.receive_putobject_data(self.repo, args)
+            received_objects.append(args['object'])
+            self.writer.send_status(True)
 
         return 0
 
