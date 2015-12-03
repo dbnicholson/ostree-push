@@ -2,6 +2,7 @@
 
 from enum import Enum
 from gi.repository import GLib
+import os
 import struct
 import sys
 
@@ -39,6 +40,10 @@ def sys_byteorder(msg_byteorder):
     else:
         raise PushException('Unrecognized message byteorder %s'
                             % msg_byteorder)
+
+def ostree_object_path(repo, obj):
+    repodir = repo.get_path().get_path()
+    return os.path.join(repodir, 'objects', obj[0:2], obj[2:])
 
 class PushCommand(object):
     def __init__(self, cmdtype, args):
