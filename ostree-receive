@@ -49,11 +49,13 @@ class OSTreeReceiver(object):
                                             'Invalid from commit %s '
                                             'for new branch %s'
                                             %(revs[0], branch))
+                    self.reader.receive_done()
                     return 1
             elif revs[0] != current:
                 self.writer.send_status(False,
                                         'Branch %s is at %s, not %s'
                                         %(branch, current, revs[0]))
+                self.reader.receive_done()
                 return 1
 
         # All updates valid
@@ -71,6 +73,10 @@ class OSTreeReceiver(object):
             self.reader.receive_putobject_data(self.repo, args)
             received_objects.append(args['object'])
             self.writer.send_status(True)
+
+        # If we didn't get any objects, we're done
+        if len(received_objects) == 0:
+            return 0
 
         # Got all objects, move them to the object store
         for obj in received_objects:

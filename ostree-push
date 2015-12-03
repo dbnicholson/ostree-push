@@ -157,9 +157,10 @@ class OSTreePusher(object):
         # Send update command
         self.writer.send_update(update_refs)
 
-        # Receive status
+        # Receive status for update request
         args = self.reader.receive_status()
         if not args['result']:
+            self.writer.send_done()
             raise PushException(args['message'])
 
         # Collect commits and objects to push
@@ -176,6 +177,7 @@ class OSTreePusher(object):
             logging.info('Received status {} for {}'
                          .format(args['result'], obj))
             if not args['result']:
+                self.writer.send_done()
                 raise PushException(args['message'])
 
         # Tell the receiver to exit
