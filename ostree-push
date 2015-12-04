@@ -145,21 +145,20 @@ class PushMessageWriter(object):
         self.write(command)
 
         # Now write the file after the command
-        logging.info('Beginning send of {} size {} to {}'
-                     .format(obj, size, objpath))
+        logging.info('Sending object {}'.format(obj))
+        logging.debug('Size {} from {}'.format(size, objpath))
         with open(objpath, 'rb') as objf:
             remaining = size
             while remaining > 0:
                 chunk = min(2 ** 20, remaining)
                 buf = objf.read(chunk)
-                logging.info('Sending {} bytes for {}'
-                             .format(len(buf), obj))
-                logging.debug('Buffer contents: {}'.format(buf))
+                logging.debug('Sending {} bytes for {}'
+                              .format(len(buf), obj))
                 self.file.write(buf)
                 self.file.flush()
                 remaining -= chunk
-                logging.info('{} bytes remaining for {}'
-                             .format(remaining, obj))
+                logging.debug('{} bytes remaining for {}'
+                              .format(remaining, obj))
 
     def send_status(self, result, message=''):
         cmdtype = PushCommandType.status
@@ -237,20 +236,19 @@ class PushMessageReader(object):
         obj = args['object']
         size = args['size']
         tmppath = ostree_tmp_path(repo, obj)
-        logging.info('Beginning receive of {} size {} to {}'
-                     .format(obj, size, tmppath))
+        logging.info('Receiving object {}'.format(obj))
+        logging.debug('Size {} to {}'.format(size, tmppath))
         with open(tmppath, 'wb') as tmpf:
             remaining = size
             while remaining > 0:
                 chunk = min(2 ** 20, remaining)
                 buf = self.file.read(chunk)
-                logging.info('Sending {} bytes for {}'
-                             .format(len(buf), obj))
-                logging.debug('Buffer contents: {}'.format(buf))
+                logging.debug('Receiving {} bytes for {}'
+                              .format(len(buf), obj))
                 tmpf.write(buf)
                 remaining -= chunk
-                logging.info('{} bytes remaining for {}'
-                             .format(remaining, obj))
+                logging.debug('{} bytes remaining for {}'
+                              .format(remaining, obj))
 
     def receive_putobject(self, repo):
         cmdtype, args = self.receive([PushCommandType.putobject])
@@ -394,6 +392,7 @@ class OSTreePusher(object):
         update_refs = {}
 
         # Receive remote info
+        logging.info('Receiving repository information')
         args = self.reader.receive_info()
         remote_mode = args['mode']
         if remote_mode != OSTree.RepoMode.ARCHIVE_Z2:
@@ -409,6 +408,7 @@ class OSTreePusher(object):
             return self.close()
 
         # Send update command
+        logging.info('Sending update request')
         self.writer.send_update(update_refs)
 
         # Receive status for update request
@@ -422,14 +422,15 @@ class OSTreePusher(object):
         for branch, revs in update_refs.items():
             print('Updating', branch, revs[0], 'to', revs[1])
             needed = self.needed_commits(revs[0], revs[1], commits)
+        logging.info('Enumerating objects to send')
         objects = self.needed_objects(commits)
 
         # Send all the objects to receiver, checking status after each
         for obj in objects:
             self.writer.send_putobject(self.repo, obj)
             args = self.reader.receive_status()
-            logging.info('Received status {} for {}'
-                         .format(args['result'], obj))
+            logging.debug('Received status {} for {}'
+                          .format(args['result'], obj))
             if not args['result']:
                 self.writer.send_done()
                 raise PushException(args['message'])
@@ -496,7 +497,7 @@ class OSTreeReceiver(object):
             cmdtype, args = self.reader.receive([PushCommandType.putobject,
                                                  PushCommandType.done])
             if cmdtype == PushCommandType.done:
-                logging.info('Received done, exiting putobject loop')
+                logging.debug('Received done, exiting putobject loop')
                 break
 
             self.reader.receive_putobject_data(self.repo, args)
@@ -512,12 +513,12 @@ class OSTreeReceiver(object):
             tmp_path = ostree_tmp_path(self.repo, obj)
             obj_path = ostree_object_path(self.repo, obj)
             os.makedirs(os.path.dirname(obj_path), exist_ok=True)
-            logging.info('Renaming {} to {}'.format(tmp_path, obj_path))
+            logging.debug('Renaming {} to {}'.format(tmp_path, obj_path))
             os.rename(tmp_path, obj_path)
 
         # Finally, update the refs
         for branch, revs in update_refs.items():
-            logging.info('Setting ref {} to {}'.format(branch, revs[1]))
+            logging.debug('Setting ref {} to {}'.format(branch, revs[1]))
             self.repo.set_ref_immediate(None, branch, revs[1], None)
 
         return 0
