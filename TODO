@@ -16,8 +16,3 @@
   object store in the random order they were received in. Maybe they
   need to be ordered to keep the object store consistent. ostree commit
   doesn't seem to bother with this, though.
-
-* The temporary objects are created directly in the repo tmp directory.
-  However, ostree commit uses a staging directory of
-  `tmp/tmpobjects-$random_boot_id`. Probably push should do the same.
-  This would also make cleanup on error easier.
