@@ -30,9 +30,10 @@ import subprocess
 import sys
 import tempfile
 import shutil
+import tarfile
 from urllib.parse import urlparse
 
-PROTO_VERSION = 0
+PROTO_VERSION = 1
 HEADER_SIZE = 5
 
 class PushException(Exception):
@@ -41,7 +42,7 @@ class PushException(Exception):
 class PushCommandType(Enum):
     info = 0
     update = 1
-    putobject = 2
+    putobjects = 2
     status = 3
     done = 4
 
@@ -134,32 +135,31 @@ class PushMessageWriter(object):
         command = PushCommand(cmdtype, args)
         self.write(command)
 
-    def send_putobject(self, repo, obj):
-        cmdtype = PushCommandType.putobject
-        objpath = ostree_object_path(repo, obj)
-        size = os.stat(objpath).st_size
-        args = {
-            'object': GLib.Variant('s', obj),
-            'size': GLib.Variant('t', size)
-        }
-        command = PushCommand(cmdtype, args)
+    def send_putobjects(self, repo, objects):
+
+        logging.info('Sending {} objects'.format(len(objects)))
+
+        # Send command saying we're going to send a stream of objects
+        cmdtype = PushCommandType.putobjects
+        command = PushCommand(cmdtype, {})
         self.write(command)
 
-        # Now write the file after the command
-        logging.info('Sending object {}'.format(obj))
-        logging.debug('Size {} from {}'.format(size, objpath))
-        with open(objpath, 'rb') as objf:
-            remaining = size
-            while remaining > 0:
-                chunk = min(2 ** 20, remaining)
-                buf = objf.read(chunk)
-                logging.debug('Sending {} bytes for {}'
-                              .format(len(buf), obj))
-                self.file.write(buf)
-                self.file.flush()
-                remaining -= chunk
-                logging.debug('{} bytes remaining for {}'
-                              .format(remaining, obj))
+        # Open a TarFile for writing uncompressed tar to a stream
+        tar = tarfile.TarFile.open(mode='w|', fileobj=self.file)
+        for obj in objects:
+
+            logging.info('Sending object {}'.format(obj))
+            objpath = ostree_object_path(repo, obj)
+            stat = os.stat(objpath)
+
+            tar_info = tarfile.TarInfo(obj)
+            tar_info.mtime = stat.st_mtime
+            tar_info.size = stat.st_size
+            with open(objpath, 'rb') as obj_fp:
+                tar.addfile(tar_info, obj_fp)
+
+        # We're done, close the tarfile
+        tar.close()
 
     def send_status(self, result, message=''):
         cmdtype = PushCommandType.status
@@ -233,29 +233,29 @@ class PushMessageReader(object):
         cmdtype, args = self.receive([PushCommandType.update])
         return args
 
-    def receive_putobject_data(self, repo, args):
-        # Read in the object and store it in the tmp directory
-        obj = args['object']
-        size = args['size']
-        tmppath = os.path.join(self.tmpdir, obj)
-        logging.info('Receiving object {}'.format(obj))
-        logging.debug('Size {} to {}'.format(size, tmppath))
-        with open(tmppath, 'wb') as tmpf:
-            remaining = size
-            while remaining > 0:
-                chunk = min(2 ** 20, remaining)
-                buf = self.file.read(chunk)
-                logging.debug('Receiving {} bytes for {}'
-                              .format(len(buf), obj))
-                tmpf.write(buf)
-                remaining -= chunk
-                logging.debug('{} bytes remaining for {}'
-                              .format(remaining, obj))
+    def receive_putobjects(self, repo):
 
-    def receive_putobject(self, repo):
-        cmdtype, args = self.receive([PushCommandType.putobject])
-        self.receive_putobject_data(repo, args)
-        return args
+        received_objects = []
+
+        # Open a TarFile for reading uncompressed tar from a stream
+        tar = tarfile.TarFile.open(mode='r|', fileobj=self.file)
+
+        # Extract every tarinfo into the temp location
+        #
+        # This should block while tar.next() reads the next
+        # tar object from the stream.
+        while True:
+            tar_info = tar.next()
+            if not tar_info:
+                break
+
+            tar.extract(tar_info, self.tmpdir)
+            received_objects.append(tar_info.name)
+
+        # Finished with this stream
+        tar.close()
+
+        return received_objects
 
     def receive_status(self):
         cmdtype, args = self.receive([PushCommandType.status])
@@ -428,17 +428,7 @@ class OSTreePusher(object):
         objects = self.needed_objects(commits)
 
         # Send all the objects to receiver, checking status after each
-        for obj in objects:
-            self.writer.send_putobject(self.repo, obj)
-            args = self.reader.receive_status()
-            logging.debug('Received status {} for {}'
-                          .format(args['result'], obj))
-            if not args['result']:
-                self.writer.send_done()
-                raise PushException(args['message'])
-
-        # Tell the receiver to exit
-        self.writer.send_done()
+        self.writer.send_putobjects(self.repo, objects)
 
         return self.close()
 
@@ -467,7 +457,9 @@ class OSTreeReceiver(object):
 
     def run(self):
         try:
-            return self.do_run()
+            exit_code = self.do_run()
+            self.close()
+            return exit_code
         except PushException:
             # Ensure we cleanup files if there was an error
             self.close()
@@ -505,18 +497,16 @@ class OSTreeReceiver(object):
         # All updates valid
         self.writer.send_status(True)
 
-        # Wait for putobject or done command
-        received_objects = []
-        while True:
-            cmdtype, args = self.reader.receive([PushCommandType.putobject,
-                                                 PushCommandType.done])
-            if cmdtype == PushCommandType.done:
-                logging.debug('Received done, exiting putobject loop')
-                break
+        # Wait for putobjects or done
+        cmdtype, args = self.reader.receive([PushCommandType.putobjects,
+                                             PushCommandType.done])
 
-            self.reader.receive_putobject_data(self.repo, args)
-            received_objects.append(args['object'])
-            self.writer.send_status(True)
+        if cmdtype == PushCommandType.done:
+            logging.debug('Received done before any objects, exiting')
+            return 0
+
+        # Receive the actual objects
+        received_objects = self.reader.receive_putobjects(self.repo)
 
         # If we didn't get any objects, we're done
         if len(received_objects) == 0:
