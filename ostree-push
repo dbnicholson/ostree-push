@@ -19,12 +19,17 @@
 
 from argparse import ArgumentParser
 from enum import Enum
+
+import gi
+gi.require_version('OSTree', '1.0')
 from gi.repository import GLib, Gio, OSTree
 import logging
 import os
 import struct
 import subprocess
 import sys
+import tempfile
+import shutil
 from urllib.parse import urlparse
 
 PROTO_VERSION = 0
@@ -61,10 +66,6 @@ def sys_byteorder(msg_byteorder):
 def ostree_object_path(repo, obj):
     repodir = repo.get_path().get_path()
     return os.path.join(repodir, 'objects', obj[0:2], obj[2:])
-
-def ostree_tmp_path(repo, obj):
-    repodir = repo.get_path().get_path()
-    return os.path.join(repodir, 'tmp', obj)
 
 class PushCommand(object):
     def __init__(self, cmdtype, args):
@@ -174,9 +175,10 @@ class PushMessageWriter(object):
         self.write(command)
 
 class PushMessageReader(object):
-    def __init__(self, file, byteorder=sys.byteorder):
+    def __init__(self, file, byteorder=sys.byteorder, tmpdir=None):
         self.file = file
         self.byteorder = byteorder
+        self.tmpdir = tmpdir
 
     def decode_header(self, header):
         if len(header) != HEADER_SIZE:
@@ -235,7 +237,7 @@ class PushMessageReader(object):
         # Read in the object and store it in the tmp directory
         obj = args['object']
         size = args['size']
-        tmppath = ostree_tmp_path(repo, obj)
+        tmppath = os.path.join(self.tmpdir, obj)
         logging.info('Receiving object {}'.format(obj))
         logging.debug('Size {} to {}'.format(size, tmppath))
         with open(tmppath, 'wb') as tmpf:
@@ -450,16 +452,28 @@ class OSTreeReceiver(object):
             self.repo = OSTree.Repo.new(Gio.File.new_for_path(self.repopath))
         self.repo.open(None)
 
+        repo_tmp = os.path.join(self.repopath, 'tmp')
+        self.tmpdir = tempfile.mkdtemp(dir=repo_tmp, prefix='ostree-push-')
         self.writer = PushMessageWriter(sys.stdout.buffer)
-        self.reader = PushMessageReader(sys.stdin.buffer)
+        self.reader = PushMessageReader(sys.stdin.buffer, tmpdir=self.tmpdir)
 
         # Set a sane umask before writing any objects
         os.umask(0o0022)
 
     def close(self):
+        shutil.rmtree(self.tmpdir)
         sys.stdout.close()
+        return 0
 
     def run(self):
+        try:
+            return self.do_run()
+        except PushException:
+            # Ensure we cleanup files if there was an error
+            self.close()
+            raise
+
+    def do_run(self):
         # Send info immediately
         self.writer.send_info(self.repo)
 
@@ -510,7 +524,7 @@ class OSTreeReceiver(object):
 
         # Got all objects, move them to the object store
         for obj in received_objects:
-            tmp_path = ostree_tmp_path(self.repo, obj)
+            tmp_path = os.path.join(self.tmpdir, obj)
             obj_path = ostree_object_path(self.repo, obj)
             os.makedirs(os.path.dirname(obj_path), exist_ok=True)
             logging.debug('Renaming {} to {}'.format(tmp_path, obj_path))
