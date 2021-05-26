@@ -340,8 +340,7 @@ def push_refs(local_repo, dest, refs=None, ssh_options=None,
                 ssh.run(cmd)
 
 
-PushDest = namedtuple('PushDest', ('host', 'repo', 'user', 'port'),
-                      defaults=(None, None))
+PushDest = namedtuple('PushDest', ('host', 'repo', 'user', 'port'))
 
 
 def parse_dest(dest):
@@ -385,7 +384,7 @@ def parse_dest(dest):
             host = tmphost
             user = tmpuser
 
-        return PushDest(host=host, user=user, repo=repo)
+        return PushDest(host=host, user=user, repo=repo, port=None)
 
 
 class DestArgAction(Action):

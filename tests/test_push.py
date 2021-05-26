@@ -210,7 +210,7 @@ class TestPushRefs:
                   refs=None, dry_run=False):
         """Run push.push_refs and check the remote command is correct"""
         dest = push.PushDest(host=sshd.address, port=sshd.port,
-                             repo=receive_repo.path)
+                             repo=receive_repo.path, user=None)
         push.push_refs(source_repo, dest, refs=refs, dry_run=dry_run,
                        ssh_options=ssh_options, command='dumpenv')
 
@@ -335,30 +335,35 @@ class TestParseDest:
     def test_good_dest(self):
         cases = (
             ('ssh://host/repo',
-             push.PushDest(host='host', repo='/repo')),
+             push.PushDest(host='host', repo='/repo', user=None, port=None)),
             ('ssh://host.example.com/repo',
-             push.PushDest(host='host.example.com', repo='/repo')),
+             push.PushDest(host='host.example.com', repo='/repo', user=None,
+                           port=None)),
             ('ssh://host/path/to/repo/',
-             push.PushDest(host='host', repo='/path/to/repo/')),
+             push.PushDest(host='host', repo='/path/to/repo/', user=None,
+                           port=None)),
             ('ssh://host/path/:/repo',
-             push.PushDest(host='host', repo='/path/:/repo')),
+             push.PushDest(host='host', repo='/path/:/repo', user=None,
+                           port=None)),
             ('ssh://user@host/repo',
-             push.PushDest(host='host', user='user', repo='/repo')),
+             push.PushDest(host='host', user='user', repo='/repo', port=None)),
             ('ssh://host:22/repo',
-             push.PushDest(host='host', port=22, repo='/repo')),
+             push.PushDest(host='host', port=22, repo='/repo', user=None)),
             ('host:repo',
-             push.PushDest(host='host', repo='repo')),
+             push.PushDest(host='host', repo='repo', user=None, port=None)),
             ('host:path/to/repo',
-             push.PushDest(host='host', repo='path/to/repo')),
+             push.PushDest(host='host', repo='path/to/repo', user=None,
+                           port=None)),
             ('host:/repo',
-             push.PushDest(host='host', repo='/repo')),
+             push.PushDest(host='host', repo='/repo', user=None, port=None)),
             ('host:/path/:/repo',
-             push.PushDest(host='host', repo='/path/:/repo')),
+             push.PushDest(host='host', repo='/path/:/repo', user=None,
+                           port=None)),
             ('user@host:repo',
-             push.PushDest(host='host', user='user', repo='repo')),
+             push.PushDest(host='host', user='user', repo='repo', port=None)),
             ('user@host.example.com:path/to/repo',
              push.PushDest(host='host.example.com', user='user',
-                           repo='path/to/repo')),
+                           repo='path/to/repo', port=None)),
         )
 
         for arg, expected in cases:
@@ -382,7 +387,7 @@ class TestArgParser:
         args = ap.parse_args(['host:repo'])
         assert args == argparse.Namespace(
             command='ostree-receive',
-            dest=push.PushDest(host='host', repo='repo'),
+            dest=push.PushDest(host='host', repo='repo', user=None, port=None),
             dry_run=False,
             log_level=logging.INFO,
             port=None,
@@ -394,13 +399,14 @@ class TestArgParser:
     def test_dest(self):
         ap = push.OTPushArgParser()
         args = ap.parse_args(['host:repo'])
-        assert args.dest == push.PushDest(host='host', repo='repo')
+        assert args.dest == push.PushDest(host='host', repo='repo',
+                                          user=None, port=None)
         args = ap.parse_args(['user@host:repo'])
         assert args.dest == push.PushDest(host='host', user='user',
-                                          repo='repo')
+                                          repo='repo', port=None)
         args = ap.parse_args(['ssh://user@host/repo'])
         assert args.dest == push.PushDest(host='host', user='user',
-                                          repo='/repo')
+                                          repo='/repo', port=None)
         args = ap.parse_args(['ssh://user@host:1234/repo'])
         assert args.dest == push.PushDest(host='host', user='user',
                                           port=1234, repo='/repo')
