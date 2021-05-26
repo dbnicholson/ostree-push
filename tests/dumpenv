@@ -1,0 +1,13 @@
+#!/usr/bin/python3
+
+# Dump argv and environ in JSON
+
+import json
+import os
+import sys
+
+data = {
+    'args': sys.argv,
+    'env': dict(os.environ),
+}
+json.dump(data, sys.stdout, indent=2, sort_keys=True)

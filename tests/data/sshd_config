@@ -1,0 +1,15 @@
+# Configuration for testing sshd. Some other options are set on the
+# command line based on the test environment
+AcceptEnv LANG LC_*
+AllowTcpForwarding yes
+ChallengeResponseAuthentication no
+HostbasedAuthentication no
+ListenAddress 127.0.0.1
+PasswordAuthentication no
+PermitRootLogin no
+PermitUserEnvironment no
+PidFile none
+PubkeyAuthentication yes
+StrictModes no
+UsePAM no
+X11Forwarding no

@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+
+# ostree-receive script for testing
+
+import logging
+import sys
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger('tests/ostree-receive')
+logger.debug('sys.path=%s', ':'.join(sys.path))
+
+from otpush import receive  # noqa: E402
+receive.main()
