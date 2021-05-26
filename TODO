@@ -1,18 +1,21 @@
 
-* There's no remote locking. This might be a general OSTree issue that
-  there's no way to lock the repo.
+* There's no local repository locking. If another process writes to the
+  repository while the HTTP server is active, it might serve the wrong
+  contents. If the OSTree repo locking API is made public, the local
+  repo should be locked while the push is happening. In practice this
+  shouldn't be an issue since you're unlikely to be making commits into
+  a shared repo.
 
-* The client only knows about the commits at the head of each reference,
-  but the server may have the commits we want to send. If it does, then
-  no objects need to be sent and the server can simply update the refs
-  files.
+* Neither the pulled commits nor the repo metadata created by
+  `ostree-receive` are signed. A config file should be supported with
+  the GPG signing details.
 
-* The client sends all objects referenced by the commits it's going to
-  send, but the server may already have some of those objects. Probably
-  a `HAVEOBJECT` message needs to be added so that the client and server
-  can negotiate the minimal set of objects to send.
+* The `ostree-receive` repo metadata update process is currently limited
+  to running either `ostree summary -u` or `flatpak build-update-repo`.
+  Probably it should be possible to define a hook path in configuration
+  that will be run to update the repo metadata (and maybe do other
+  things like create static deltas or purge a CDN) when there are
+  updates.
 
-* Once the objects are received on the server, they're moved into the
-  object store in the random order they were received in. Maybe they
-  need to be ordered to keep the object store consistent. ostree commit
-  doesn't seem to bother with this, though.
+* When `sshd` is not available, tests should be skipped rather than
+  fail.

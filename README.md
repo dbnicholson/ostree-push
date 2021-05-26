@@ -1,5 +1,6 @@
-ostree-push
-===========
+# ostree-push
+
+## Background
 
 `ostree-push` uses `ssh` to push commits from a local OSTree repo to a
 remote OSTree repo. This is to fill a gap where currently you can only
@@ -31,20 +32,60 @@ rather than using a staging directory like `pull` or `commit` do. If
 `rsync` is interrupted, it could leave partial objects in the store.
 
 `ostree-push` tries to offer functionality like `git` where commits can
-be pushed over `ssh` to avoid these issues. Eventually, the protocol
-could be used to offer pulls over `ssh`, which would allow working with
-remotes over something other than http.
+be pushed over `ssh` to avoid these issues.
 
-Operation
-=========
+## Operation
 
-When `ostree-push` is started, it opens a channel to the specified
-remote host with `ssh`. On the remote host, `ostree-receive` is spawned.
-`ostree-push` and `ostree-receive` then communicate via a custom
-protocol to publish the commits. After determining what objects are
-needed in the remote repository, `ostree-push` sends the objects one by
-one to `ostree-receive`. After receiving all objects, `ostree-receive`
-moves them from a temporary staging directory to the object store and
-updates the refs files.
+When `ostree-push` is started, it first starts a local HTTP server
+providing the contents of the local ostree repo. It then connects to the
+remote host with `ssh` and tunnels the HTTP server port through the SSH
+connection. Finally, it runs `ostree-receive` on the remote host with
+the URL of the tunneled HTTP server. `ostree-receive` then creates a
+temporary remote using this URL and pulls the desired refs from it.
 
-The full protocol and message format are described in `protocol.md`.
+In essence, `ostree-push` and `ostree-receive` coordinate to pull from
+the local repo to a remote repo while avoiding the limitations described
+above. Namely, no HTTP server needs to be running and no port needs to
+be exposed on the local host. Both resources are created temporarily and
+only exposed to the remote host through the secure SSH connection.
+
+## Installation
+
+Use `pip` to install the `otpush` package and the `ostree-push` and
+`ostree-receive` scripts. From a git checkout, run:
+
+```
+pip install .
+```
+
+If `ostree-receive` is not in a default `PATH` location, it may not be
+located when run in the environment spawned by the SSH server. As a
+workaround, make a symbolic link in a standard location:
+
+```
+sudo ln -s /path/to/ostree-receive /usr/bin/ostree-receive
+```
+
+Both `ostree-push` and `ostree-receive` require the OSTree GObject
+Introspection bindings. Typically these would be installed from the host
+distro. On Debian systems the package is `gir1.2-ostree-1.0` while on
+RedHat systems they are in the `ostree-libs` package.
+
+`ostree-push` relies on the connection sharing and port forwarding
+features of OpenSSH and is unlikely to work with another SSH client.
+Similarly, `ostree-receive` has only be tested with the OpenSSH server,
+but it might work correctly with other SSH servers.
+
+## Testing
+
+A test suite is provided using [pytest][pytest]. Most of the time simply
+running `pytest` from a git checkout will run it correctly. [tox][tox]
+can also be used to automate running the test suite in a prepared Python
+environment.
+
+In addition to the `ostree-push` dependencies, many of the tests depend
+on using OpenSSH `sshd` locally. On both Debian and RedHat systems this
+is available in the `openssh-server` package.
+
+[pytest]: https://docs.pytest.org/en/stable/
+[tox]: https://tox.readthedocs.io/en/stable/
