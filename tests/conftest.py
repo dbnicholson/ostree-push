@@ -20,12 +20,16 @@ def cli_env_vars():
     path = os.getenv('PATH', os.defpath)
     cli_path_parts = path.split(os.pathsep)
     cli_path_parts.insert(0, TESTSDIR)
+    toxbindir = os.getenv('TOXBINDIR')
+    if toxbindir:
+        cli_path_parts.insert(0, toxbindir)
     cli_path = os.pathsep.join(cli_path_parts)
     env_vars['PATH'] = cli_path
 
     pypath = os.getenv('PYTHONPATH')
     cli_pypath_parts = pypath.split(os.pathsep) if pypath else []
-    cli_pypath_parts.insert(0, SRCDIR)
+    if not toxbindir:
+        cli_pypath_parts.insert(0, SRCDIR)
     cli_pypath = os.pathsep.join(cli_pypath_parts)
     env_vars['PYTHONPATH'] = cli_pypath
 

@@ -18,7 +18,12 @@ def test_basic(sshd, ssh_options):
     assert 'PYTHONPATH' in env
 
     path = env['PATH'].split(os.pathsep)
-    assert path[0] == TESTSDIR
+    if 'TOXBINDIR' in os.environ:
+        assert path[0] == os.environ['TOXBINDIR']
+        assert path[1] == TESTSDIR
+    else:
+        assert path[0] == TESTSDIR
 
     pypath = env['PYTHONPATH'].split(os.pathsep)
-    assert pypath[0] == SRCDIR
+    if 'TOXBINDIR' not in os.environ:
+        assert pypath[0] == SRCDIR
