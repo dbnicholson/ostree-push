@@ -1,0 +1,7 @@
+[flake8]
+# Check python scripts without .py suffix
+filename =
+    *.py,
+    ./tests/dumpenv,
+    ./tests/ostree-push,
+    ./tests/ostree-receive
