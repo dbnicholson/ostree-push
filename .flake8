@@ -2,6 +2,7 @@
 # Check python scripts without .py suffix
 filename =
     *.py,
+    ./scripts/ostree-receive-shell,
     ./tests/dumpenv,
     ./tests/ostree-push,
     ./tests/ostree-receive

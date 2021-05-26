@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 TESTSDIR = os.path.abspath(os.path.dirname(__file__))
 DATADIR = os.path.join(TESTSDIR, 'data')
 SRCDIR = os.path.dirname(TESTSDIR)
+SCRIPTSDIR = os.path.join(SRCDIR, 'scripts')
 
 
 class OTPushTestError(Exception):

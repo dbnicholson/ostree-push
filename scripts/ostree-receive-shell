@@ -1,0 +1,78 @@
+#!/usr/bin/env python3
+
+# ostree-receive-shell - Login shell for ostree-receive
+# Copyright (C) 2017  Endless Mobile, Inc.
+# Copyright (C) 2021  Endless OS Foundation LLC
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+"""Login shell for ostree repository owner
+
+When a remote user runs ostree-push, it opens an SSH tunnel to the
+repository server and runs ostree-receive. In order to not allow running
+arbitrary commands over SSH, ostree-receive-shell restricts the command
+run by SSH to only run ostree-receive.
+
+This is inspired by `git-shell`, which only allows running
+`git-receive-pack` to allow git pushes but no other usage.
+"""
+
+import errno
+import os
+import shlex
+import sys
+
+ALLOWED_COMMAND = 'ostree-receive'
+PROG = os.path.basename(__file__)
+BINDIR = os.path.dirname(os.path.realpath(__file__))
+
+# Can only run as "ostree-receive-shell -c 'command'"
+argc = len(sys.argv)
+if argc == 1:
+    print(f'{PROG}: Cannot run interactively', file=sys.stderr)
+    sys.exit(1)
+elif argc != 3 or sys.argv[1] != '-c':
+    print(f'{PROG}: Must be run with no arguments or with -c cmd',
+          file=sys.stderr)
+    sys.exit(1)
+
+# Make sure required command has been specified.
+args = shlex.split(sys.argv[2])
+if args[0] != ALLOWED_COMMAND:
+    print(f'{PROG}: Executing {args[0]} not allowed',  file=sys.stderr)
+    sys.exit(1)
+
+# Add this program's directory to PATH for convenience in case
+# ostree-receive is installed in a non-standard location.
+env = os.environ.copy()
+path_value = env.get('PATH', os.defpath)
+path_components = path_value.split(os.pathsep)
+if BINDIR not in path_components:
+    path_components.append(BINDIR)
+    env['PATH'] = os.pathsep.join(path_components)
+
+# Execute the command
+try:
+    os.execvpe(args[0], args, env)
+except OSError as err:
+    print(f'{PROG}: {args[0]}: {err.strerror}', file=sys.stderr)
+
+    # Emulate bash's exit codes
+    if err.errno == errno.ENOENT:
+        sys.exit(127)
+    elif err.errno == errno.EACCES:
+        sys.exit(126)
+    else:
+        sys.exit(1)

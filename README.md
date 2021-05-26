@@ -66,6 +66,21 @@ workaround, make a symbolic link in a standard location:
 sudo ln -s /path/to/ostree-receive /usr/bin/ostree-receive
 ```
 
+In order to restrict SSH usage to only running `ostree-receive`, the
+`ostree-receive-shell` script can be used as a login shell. This way
+someone with SSH access to the remote machine cannot run arbitrary
+commands as the user owning the repositories. To use it, set the login
+shell of the repo owner to `ostree-receive-shell`:
+
+```
+sudo chsh -s /path/to/ostree-receive-shell <user>
+```
+
+`ostree-receive-shell` will also append the directory it's installed in
+to `PATH` to allow `ostree-receive` to be found in non-standard
+locations. In that scenario, the symbolic link to `ostree-receive`
+described above is not needed.
+
 Both `ostree-push` and `ostree-receive` require the OSTree GObject
 Introspection bindings. Typically these would be installed from the host
 distro. On Debian systems the package is `gir1.2-ostree-1.0` while on
