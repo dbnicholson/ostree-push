@@ -1,0 +1,65 @@
+---
+name: Tests
+
+on: [push]
+
+jobs:
+  lint:
+    name: Code style and lint checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install \
+            python3-pip
+
+      - name: Install python dependencies
+        run: |
+          python3 -m pip install flake8
+
+      - name: Run flake8
+        run: |
+          python3 -m flake8
+
+  tests:
+    name: Run test suite
+    strategy:
+      matrix:
+        os:
+          - ubuntu-18.04
+          - ubuntu-20.04
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install \
+            build-essential \
+            flatpak \
+            gir1.2-ostree-1.0 \
+            libcairo2-dev \
+            libgirepository1.0-dev \
+            openssh-client \
+            openssh-server \
+            ostree \
+            python3-dev \
+            python3-pip \
+            python3-setuptools \
+            python3-wheel
+
+      - name: Install python dependencies
+        run: |
+          python3 -m pip install tox
+
+      - name: Run tox
+        run: |
+          python3 -m tox
