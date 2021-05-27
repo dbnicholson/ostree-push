@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import pytest
+import re
 import socket
 import subprocess
 from urllib.error import HTTPError
@@ -333,10 +334,11 @@ class TestParseDest:
                 push.parse_dest(dest)
 
     def test_invalid_port(self):
+        match = re.compile(
+            r'(Port could not be cast to integer|invalid literal for int)'
+        )
         for dest in ('ssh://host:port/repo', 'ssh://host:$/repo'):
-            with pytest.raises(
-                    ValueError,
-                    match='Port could not be cast to integer value'):
+            with pytest.raises(ValueError, match=match):
                 push.parse_dest(dest)
 
     def test_good_dest(self):
