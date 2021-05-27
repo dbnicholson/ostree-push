@@ -12,7 +12,12 @@ import subprocess
 from urllib.error import HTTPError
 from urllib.request import urlopen
 
-from .util import TESTSDIR, random_commit, TmpRepo
+from .util import (
+    TESTSDIR,
+    needs_sshd,
+    random_commit,
+    TmpRepo,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +130,7 @@ class TestRepoServer:
             assert local_refs == {}
 
 
+@needs_sshd
 class TestSSHMultiplexer:
     def test_socket_exists(self, sshd, ssh_options, ssh_socket):
         ssh = push.SSHMultiplexer(sshd.address, ssh_socket, ssh_options,
@@ -203,6 +209,7 @@ class TestSSHMultiplexer:
                 ssh.run(['rmdir', str(tmp_path)])
 
 
+@needs_sshd
 class TestPushRefs:
     DUMPENV_PATH = os.path.join(TESTSDIR, 'dumpenv')
 

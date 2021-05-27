@@ -2,9 +2,16 @@ import logging
 import os
 import subprocess
 
-from .util import SRCDIR, TESTSDIR
+from .util import (
+    SRCDIR,
+    TESTSDIR,
+    needs_sshd,
+)
 
 logger = logging.getLogger(__name__)
+
+# Skip all tests here if the required sshd is not available.
+pytestmark = needs_sshd
 
 
 def test_basic(sshd, ssh_options):

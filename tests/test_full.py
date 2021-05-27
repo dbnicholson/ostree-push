@@ -2,10 +2,19 @@ import logging
 import os
 import subprocess
 
-from .util import TESTSDIR, get_content_checksum, random_commit, wipe_repo
+from .util import (
+    TESTSDIR,
+    get_content_checksum,
+    needs_sshd,
+    random_commit,
+    wipe_repo,
+)
 
 ostree_receive_abspath = os.path.join(TESTSDIR, 'ostree-receive')
 logger = logging.getLogger(__name__)
+
+# Skip all tests here if the required sshd is not available.
+pytestmark = needs_sshd
 
 
 def run_push(source_repo, receive_repo, sshd, ssh_options, env_vars,

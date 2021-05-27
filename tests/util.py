@@ -4,6 +4,7 @@ import getpass
 import gi
 import logging
 import os
+import pytest
 import random
 import socket
 import shutil
@@ -152,6 +153,91 @@ class TmpRepo(OSTree.Repo):
 SSHServerInfo = namedtuple('SSHServerInfo', ('proc', 'address', 'port'))
 
 
+def get_sshd():
+    """Returns the path to sshd or None
+
+    Looks in PATH and typical sbin directories not in PATH.
+    """
+    path = os.getenv('PATH', os.defpath)
+    sshd_path = os.pathsep.join([path, '/usr/local/sbin', '/usr/sbin',
+                                 '/sbin'])
+    sshd = shutil.which('sshd', path=sshd_path)
+    if sshd:
+        logger.debug('Found sshd %s', sshd)
+    else:
+        logger.debug('sshd not found in %s', sshd_path)
+    return sshd
+
+
+def have_required_sshd(sshd=None):
+    """Check whether sshd meets requirements
+
+    sshd needs to be OpenSSH version 7.8 or newer to support the SetEnv
+    config option.
+    """
+    if not sshd:
+        sshd = get_sshd()
+    if not sshd:
+        return False
+
+    # Run sshd -V to get the version. This is actually only an option on
+    # the ssh client, but it will print the version after complaining
+    # about the unknown option. Maybe someday it will exist...
+    proc = subprocess.run([sshd, '-V'], stdout=subprocess.PIPE,
+                          stderr=subprocess.STDOUT)
+    lines = iter(proc.stdout.decode('utf-8').splitlines())
+    try:
+        version_line = next(lines)
+        if version_line.startswith('unknown option'):
+            version_line = next(lines)
+    except StopIteration:
+        logger.debug('No version information from %s -V', sshd)
+        return False
+
+    logger.debug('sshd version line: %s', version_line)
+    if not version_line.startswith('OpenSSH_'):
+        logger.debug('OpenSSH not in version')
+        return False
+
+    # The version line should look something like:
+    #
+    # OpenSSH_7.6p1 Ubuntu-4ubuntu0.3, OpenSSL 1.0.2n  7 Dec 2017
+    #
+    # Get the first word, strip the OpenSSH_ prefix, strip the portable
+    # pX suffix, and then try to get the major and minor version
+    # numbers.
+    openssh_version = version_line.split()[0]
+    _, _, full_version = openssh_version.partition('OpenSSH_')
+    version, _, _ = full_version.partition('p')
+    version_parts = version.split('.')
+    try:
+        major = int(version_parts[0])
+    except ValueError:
+        logger.debug('Could not get major version from %s', version)
+        return False
+    try:
+        minor = int(version_parts[1])
+    except IndexError:
+        minor = 0
+    except ValueError:
+        logger.debug('Could not get minor version from %s', version)
+        return False
+    logger.debug('Detected OpenSSH sshd version %d.%d', major, minor)
+
+    # OpenSSH 7.8 is needed for the SetEnv option
+    if major < 7 or (major == 7 and minor < 8):
+        logger.debug('OpenSSH sshd version < 7.8')
+        return False
+
+    return True
+
+
+needs_sshd = pytest.mark.skipif(
+    not have_required_sshd(),
+    reason='OpenSSH sshd version 7.8+ required'
+)
+
+
 def get_ssh_server_id(address):
     """Open a connection to an SSH server and get the identification string
 
@@ -181,12 +267,11 @@ def get_ssh_server_id(address):
 @contextmanager
 def ssh_server(sshd_config, host_key, authorized_keys, env_vars=None):
     # Running sshd requires an absolute path
-    path = os.getenv('PATH', os.defpath)
-    sshd_path = os.pathsep.join([path, '/usr/local/sbin', '/usr/sbin',
-                                 '/sbin'])
-    sshd = shutil.which('sshd', path=sshd_path)
+    sshd = get_sshd()
     if not sshd:
-        raise OTPushTestError(f'Could not find sshd in {path}')
+        raise OTPushTestError('Could not find sshd')
+    if not have_required_sshd(sshd):
+        raise OTPushTestError(f'{sshd} is not the required version')
 
     # Build a SetEnv option value from the provided environment variables.
     env_vars = env_vars or {}
