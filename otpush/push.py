@@ -39,7 +39,6 @@ from . import VERSION
 
 from argparse import Action, ArgumentError, ArgumentParser
 from collections import namedtuple
-import functools
 import gi
 from http.server import SimpleHTTPRequestHandler
 import logging
@@ -115,9 +114,11 @@ class RepoServer:
         self.stop()
 
     def _run_server(self, path, queue):
-        handler_class = functools.partial(OSTreeRequestHandler,
-                                          directory=path)
-        server = ThreadingHTTPServer(('127.0.0.1', 0), handler_class)
+        # FIXME: When python 3.7 is the minimum, use the
+        # SimpleHTTPRequestHandler directory parameter with
+        # functools.partial instead of changing directory.
+        os.chdir(path)
+        server = ThreadingHTTPServer(('127.0.0.1', 0), OSTreeRequestHandler)
         queue.put(server.server_address)
         server.serve_forever()
 
