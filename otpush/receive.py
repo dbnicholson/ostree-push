@@ -183,10 +183,17 @@ class OTReceiveRepo(OSTree.Repo):
         commit_subject = src_variant.get_child_value(3).get_string()
         commit_body = src_variant.get_child_value(4).get_string()
 
-        # If the dest ref exists, use the current commit as the parent
-        _, parent = self.resolve_rev_ext(
-            ref, allow_noent=True,
-            flags=OSTree.RepoResolveRevExtFlags.NONE)
+        # If the dest ref exists, use the current commit as the parent.
+        # Prior to ostree 2019.2, the GIR for
+        # OSTree.RepoResolveRevExtFlags was represented as an
+        # enumeration and the longer name is required.
+        try:
+            resolve_flags = OSTree.RepoResolveRevExtFlags.NONE
+        except AttributeError:
+            resolve_flags = \
+                OSTree.RepoResolveRevExtFlags.REPO_RESOLVE_REV_EXT_NONE
+        _, parent = self.resolve_rev_ext(ref, allow_noent=True,
+                                         flags=resolve_flags)
 
         # Keep the source commit's timestamp
         commit_time = OSTree.commit_get_timestamp(src_variant)
