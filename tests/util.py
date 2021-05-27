@@ -111,8 +111,12 @@ def wipe_repo(repo):
 
 def local_refs(repo, prefix=None):
     """Get local refs in repo excluding remotes and mirrors"""
-    flags = (OSTree.RepoListRefsExtFlags.EXCLUDE_REMOTES |
-             OSTree.RepoListRefsExtFlags.EXCLUDE_MIRRORS)
+    flags = OSTree.RepoListRefsExtFlags.EXCLUDE_REMOTES
+    try:
+        # EXCLUDE_MIRRORS only available since ostree 2019.2
+        flags |= OSTree.RepoListRefsExtFlags.EXCLUDE_MIRRORS
+    except AttributeError:
+        pass
     _, refs = repo.list_refs_ext(prefix, flags)
     return refs
 

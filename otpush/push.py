@@ -288,8 +288,12 @@ def push_refs(local_repo, dest, refs=None, ssh_options=None,
     # If refs were specified, make sure they exist before bothering with
     # the remote connection
     if refs:
-        list_refs_flags = (OSTree.RepoListRefsExtFlags.EXCLUDE_REMOTES |
-                           OSTree.RepoListRefsExtFlags.EXCLUDE_MIRRORS)
+        list_refs_flags = OSTree.RepoListRefsExtFlags.EXCLUDE_REMOTES
+        try:
+            # EXCLUDE_MIRRORS only available since ostree 2019.2
+            list_refs_flags |= OSTree.RepoListRefsExtFlags.EXCLUDE_MIRRORS
+        except AttributeError:
+            pass
         _, local_refs = local_repo.list_refs_ext(None, list_refs_flags)
         missing_refs = sorted(set(refs) - local_refs.keys())
         if missing_refs:

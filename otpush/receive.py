@@ -207,14 +207,22 @@ class OTReceiveRepo(OSTree.Repo):
 
         return commit_checksum
 
+    def _get_local_refs(self):
+        flags = OSTree.RepoListRefsExtFlags.EXCLUDE_REMOTES
+        try:
+            # EXCLUDE_MIRRORS only available since ostree 2019.2
+            flags |= OSTree.RepoListRefsExtFlags.EXCLUDE_MIRRORS
+        except AttributeError:
+            pass
+        _, refs = self.list_refs_ext(None, flags)
+        return refs
+
     @staticmethod
     def _is_flatpak_ref(ref):
         return ref.startswith('app/') or ref.startswith('runtime/')
 
     def _is_flatpak_repo(self):
-        flags = (OSTree.RepoListRefsExtFlags.EXCLUDE_REMOTES |
-                 OSTree.RepoListRefsExtFlags.EXCLUDE_MIRRORS)
-        _, refs = self.list_refs_ext(None, flags)
+        refs = self._get_local_refs()
         return any(filter(self._is_flatpak_ref, refs))
 
     def update_repo_metadata(self):
@@ -243,9 +251,7 @@ class OTReceiveRepo(OSTree.Repo):
             logger.info(' %s %s', ref, remote_refs.get(ref))
 
         # See what commits we have on these refs.
-        list_refs_flags = (OSTree.RepoListRefsExtFlags.EXCLUDE_REMOTES |
-                           OSTree.RepoListRefsExtFlags.EXCLUDE_MIRRORS)
-        _, current_refs = self.list_refs_ext(None, list_refs_flags)
+        current_refs = self._get_local_refs()
         logger.info('Current commits:')
         for ref in wanted_refs:
             logger.info(' %s %s', ref, current_refs.get(ref))
