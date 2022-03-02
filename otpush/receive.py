@@ -39,7 +39,7 @@ refs will be ignored.
 
 from . import VERSION
 
-from argparse import ArgumentParser
+from argparse import ArgumentParser, Namespace
 import atexit
 from collections import OrderedDict
 from configparser import ConfigParser
@@ -94,8 +94,8 @@ class OTReceiveConfig:
                 )
 
     @classmethod
-    def load(cls, paths=None):
-        """Create instance from config files
+    def load(cls, paths=None, args=None):
+        """Create instance from config files and arguments
 
         If paths is None, default_paths() will be used.
         """
@@ -136,6 +136,21 @@ class OTReceiveConfig:
                     'Setting option %s to %s from %s', option, value, path
                 )
                 conf[option] = value
+
+        # Load argument options
+        if args is not None:
+            if not isinstance(args, Namespace):
+                raise OTReceiveConfigError(
+                    'args is not an argparse.Namespace instance'
+                )
+
+            logger.debug('Loading arguments %s', args)
+            for arg, value in vars(args).items():
+                if arg not in fields:
+                    logger.debug('Ignoring argument %s', arg)
+                    continue
+                logger.debug('Setting option %s to %s from args', arg, value)
+                conf[arg] = value
 
         return cls(**conf)
 

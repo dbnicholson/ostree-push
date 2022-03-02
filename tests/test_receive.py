@@ -434,6 +434,58 @@ class TestConfig:
             f'Config file {path} is not a YAML mapping'
         )
 
+    def test_load_args(self, caplog):
+        caplog.set_level(logging.DEBUG, receive.logger.name)
+        ap = argparse.ArgumentParser()
+        ap.add_argument('--log-level', default='WARNING')
+        ap.add_argument('--someopt', default='someval')
+        ap.add_argument('pos')
+        args = ap.parse_args(['foo'])
+
+        config = receive.OTReceiveConfig.load(paths=[], args=args)
+        assert dataclasses.asdict(config) == {
+            'update': True,
+            'log_level': 'WARNING',
+            'force': False,
+            'dry_run': False,
+        }
+
+        expected_log_record = (
+            receive.logger.name,
+            logging.DEBUG,
+            'Ignoring argument someopt'
+        )
+        assert expected_log_record in caplog.record_tuples
+
+        expected_log_record = (
+            receive.logger.name,
+            logging.DEBUG,
+            'Ignoring argument pos'
+        )
+        assert expected_log_record in caplog.record_tuples
+
+    def test_load_args_invalid(self):
+        with pytest.raises(receive.OTReceiveConfigError) as excinfo:
+            receive.OTReceiveConfig.load(paths=[], args='foo')
+        assert str(excinfo.value) == (
+            'args is not an argparse.Namespace instance'
+        )
+
+    def test_load_conf_and_args(self, tmp_path):
+        path = tmp_path / 'ostree-receive.conf'
+        data = {
+            'log-level': 'DEBUG',
+        }
+        with path.open('w') as f:
+            yaml.dump(data, f)
+
+        ap = argparse.ArgumentParser()
+        ap.add_argument('--log-level', default='WARNING')
+        args = ap.parse_args([])
+
+        config = receive.OTReceiveConfig.load(paths=[path], args=args)
+        assert config.log_level == 'WARNING'
+
 
 class TestArgParser:
     def test_no_repo(self, capsys):
