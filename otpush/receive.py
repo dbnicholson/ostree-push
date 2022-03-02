@@ -43,13 +43,16 @@ from argparse import ArgumentParser
 import atexit
 from collections import OrderedDict
 from configparser import ConfigParser
+import dataclasses
 import fnmatch
 import gi
 import logging
 import os
+from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import yaml
 
 gi.require_version('OSTree', '1.0')
 from gi.repository import GLib, Gio, OSTree  # noqa: E402
@@ -60,6 +63,94 @@ logger = logging.getLogger(__name__)
 class OTReceiveError(Exception):
     """Errors from ostree-receive"""
     pass
+
+
+class OTReceiveConfigError(OTReceiveError):
+    """Errors from ostree-receive configuration"""
+    pass
+
+
+@dataclasses.dataclass
+class OTReceiveConfig:
+    """OTReceiveRepo configuration"""
+    update: bool = True
+    log_level: str = 'INFO'
+    force: bool = False
+    dry_run: bool = False
+
+    def __post_init__(self):
+        # Validate the instance.
+        for field in dataclasses.fields(self):
+            value = getattr(self, field.name)
+
+            # Validate the type. None is allowed if the default is None.
+            if value is None and field.default is None:
+                continue
+            elif not isinstance(value, field.type):
+                inst_type = type(value)
+                raise OTReceiveConfigError(
+                    f'{field.name} must be an instance of '
+                    f'{field.type}, but found {inst_type}'
+                )
+
+    @classmethod
+    def load(cls, paths=None):
+        """Create instance from config files
+
+        If paths is None, default_paths() will be used.
+        """
+        conf = {}
+        fields = {field.name for field in dataclasses.fields(cls)}
+        if paths is None:
+            paths = cls.default_paths()
+
+        # Load config file options
+        for p in paths:
+            try:
+                path = Path(p).expanduser().resolve()
+            except TypeError as err:
+                raise OTReceiveConfigError(err) from None
+            if not path.exists():
+                logger.debug('Skipping missing config file %s', path)
+                continue
+
+            logger.debug('Loading config file %s', path)
+            with path.open() as f:
+                data = yaml.safe_load(f)
+            if data is None:
+                logger.debug('Ignoring empty config file %s', path)
+                continue
+            elif not isinstance(data, dict):
+                raise OTReceiveConfigError(
+                    f'Config file {path} is not a YAML mapping'
+                )
+
+            for option, value in data.items():
+                if option not in fields:
+                    logger.warning(
+                        'Unrecognized option %s in config file %s',
+                        option, path
+                    )
+                    continue
+                logger.debug(
+                    'Setting option %s to %s from %s', option, value, path
+                )
+                conf[option] = value
+
+        return cls(**conf)
+
+    @staticmethod
+    def default_paths():
+        """Return list of default configuration files"""
+        env_config = os.getenv('OSTREE_RECEIVE_CONF')
+        if env_config:
+            return [Path(env_config)]
+
+        config_home = Path(os.getenv('XDG_CONFIG_HOME', '~/.config'))
+        return [
+            Path('/etc/ostree/ostree-receive.conf'),
+            config_home / 'ostree/ostree-receive.conf',
+        ]
 
 
 class OTReceiveRepo(OSTree.Repo):
