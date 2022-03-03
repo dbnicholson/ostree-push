@@ -3,6 +3,7 @@ from otpush import push, receive
 import os
 import pytest
 import shutil
+import yaml
 
 from .util import DATADIR, TESTSDIR, SRCDIR, ssh_server, TmpRepo
 
@@ -109,5 +110,17 @@ def dest_repo(tmp_path):
 @pytest.fixture
 def receive_repo(dest_repo, source_server):
     repo_path = str(dest_repo.path)
-    with receive.OTReceiveRepo(repo_path, source_server.url) as repo:
+    config = receive.OTReceiveConfig(update=False)
+    with receive.OTReceiveRepo(repo_path, source_server.url, config) as repo:
         yield repo
+
+
+@pytest.fixture
+def receive_config_path(tmp_path):
+    path = tmp_path / 'ostree-receive.conf'
+    config = {
+        'update': False,
+    }
+    with path.open('w') as f:
+        yaml.dump(config, f)
+    return path

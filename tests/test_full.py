@@ -18,15 +18,16 @@ pytestmark = needs_sshd
 
 
 def run_push(source_repo, dest_repo, sshd, ssh_options, env_vars,
-             command='ostree-receive', dest=None, options=None, refs=None,
-             **popen_kwargs):
+             receive_config_path, command='ostree-receive', dest=None,
+             options=None, refs=None, **popen_kwargs):
     dest = dest or f'ssh://{sshd.address}:{sshd.port}/{dest_repo.path}'
     options = options or []
     refs = refs or []
+    env = os.environ.copy()
+    env['OSTREE_RECEIVE_CONF'] = receive_config_path
     if env_vars:
-        env = os.environ.copy()
         env.update(env_vars)
-        popen_kwargs['env'] = env
+    popen_kwargs['env'] = env
     if 'check' not in popen_kwargs:
         popen_kwargs['check'] = True
     cmd = [
@@ -39,9 +40,12 @@ def run_push(source_repo, dest_repo, sshd, ssh_options, env_vars,
 
 
 def test_no_commits(source_repo, dest_repo, sshd, ssh_options,
-                    cli_env_vars, capfd):
+                    cli_env_vars, receive_config_path, capfd):
     """Test push with no commits in source repo"""
-    args = (source_repo, dest_repo, sshd, ssh_options, cli_env_vars)
+    args = (
+        source_repo, dest_repo, sshd, ssh_options, cli_env_vars,
+        receive_config_path
+    )
 
     run_push(*args)
     capfd.readouterr()
@@ -57,9 +61,12 @@ def test_no_commits(source_repo, dest_repo, sshd, ssh_options,
 
 
 def test_basic(source_repo, dest_repo, sshd, ssh_options, cli_env_vars,
-               tmp_files_path, capfd):
+               receive_config_path, tmp_files_path, capfd):
     """Test push with one commit in source repo"""
-    args = (source_repo, dest_repo, sshd, ssh_options, cli_env_vars)
+    args = (
+        source_repo, dest_repo, sshd, ssh_options, cli_env_vars,
+        receive_config_path
+    )
 
     rev = random_commit(source_repo, tmp_files_path, 'test')
     source_content = get_content_checksum(source_repo, rev)
@@ -90,9 +97,12 @@ def test_basic(source_repo, dest_repo, sshd, ssh_options, cli_env_vars,
 
 
 def test_dry_run(source_repo, dest_repo, sshd, ssh_options, cli_env_vars,
-                 tmp_files_path):
+                 receive_config_path, tmp_files_path):
     """Test push dry run"""
-    args = (source_repo, dest_repo, sshd, ssh_options, cli_env_vars)
+    args = (
+        source_repo, dest_repo, sshd, ssh_options, cli_env_vars,
+        receive_config_path
+    )
 
     random_commit(source_repo, tmp_files_path, 'test')
 
@@ -113,9 +123,12 @@ def test_dry_run(source_repo, dest_repo, sshd, ssh_options, cli_env_vars,
 
 
 def test_scp_dest(source_repo, dest_repo, sshd, ssh_options, cli_env_vars,
-                  tmp_files_path):
+                  receive_config_path, tmp_files_path):
     """Test push with scp style destination"""
-    args = (source_repo, dest_repo, sshd, ssh_options, cli_env_vars)
+    args = (
+        source_repo, dest_repo, sshd, ssh_options, cli_env_vars,
+        receive_config_path
+    )
     dest = f'{sshd.address}:{dest_repo.path}'
     options = ['-p', str(sshd.port)]
 
@@ -126,9 +139,12 @@ def test_scp_dest(source_repo, dest_repo, sshd, ssh_options, cli_env_vars,
 
 
 def test_command_abspath(source_repo, dest_repo, sshd, ssh_options,
-                         cli_env_vars, tmp_files_path):
+                         cli_env_vars, receive_config_path, tmp_files_path):
     """Test push with absolute path to ostree-receive"""
-    args = (source_repo, dest_repo, sshd, ssh_options, cli_env_vars)
+    args = (
+        source_repo, dest_repo, sshd, ssh_options, cli_env_vars,
+        receive_config_path
+    )
     random_commit(source_repo, tmp_files_path, 'test')
     run_push(*args, command=ostree_receive_abspath)
     _, receive_refs = dest_repo.list_refs()

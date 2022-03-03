@@ -39,7 +39,7 @@ refs will be ignored.
 
 from . import VERSION
 
-from argparse import ArgumentParser, Namespace
+from argparse import ArgumentParser, Namespace, SUPPRESS
 import atexit
 from collections import OrderedDict
 from configparser import ConfigParser
@@ -179,11 +179,20 @@ class OTReceiveRepo(OSTree.Repo):
         OSTree.REPO_METADATA_REF,
     )
 
-    def __init__(self, path, url):
+    def __init__(self, path, url, config=None):
         self.path = path
         self.url = url
         self.remotes_dir = None
         self._exit_func = atexit.register(self.cleanup)
+
+        if config:
+            if not isinstance(config, OTReceiveConfig):
+                raise OTReceiveError(
+                    'config is not an OTReceiveConfig instance'
+                )
+            self.config = config
+        else:
+            self.config = OTReceiveConfig()
 
         # Create a temporary remote config file. Just an empty URL is
         # needed and the rest of the parameters will be supplied in the
@@ -249,7 +258,7 @@ class OTReceiveRepo(OSTree.Repo):
         finally:
             progress.finish()
 
-    def copy_commit(self, rev, ref, force=False):
+    def copy_commit(self, rev, ref):
         _, src_variant, src_state = self.load_commit(rev)
         if src_state != OSTree.RepoCommitState.NORMAL:
             raise OTReceiveError(f'Cannot copy irregular commit {rev}')
@@ -346,7 +355,7 @@ class OTReceiveRepo(OSTree.Repo):
         logger.info('Updating repo metadata with %s', ' '.join(cmd))
         subprocess.check_call(cmd)
 
-    def receive(self, refs, update_metadata=True, force=False, dry_run=False):
+    def receive(self, refs):
         # See what revisions we're pulling.
         _, remote_refs = self.remote_list_refs(self.REMOTE_NAME)
         if len(refs) == 0:
@@ -380,7 +389,7 @@ class OTReceiveRepo(OSTree.Repo):
                 raise OTReceiveError(
                     f'Could not find ref {ref} in summary file')
 
-            if force or remote_rev != current_rev:
+            if self.config.force or remote_rev != current_rev:
                 logger.debug('Pulling %s', ref)
                 refs_to_pull[ref] = remote_rev
 
@@ -428,7 +437,7 @@ class OTReceiveRepo(OSTree.Repo):
                                 'ref %s remote commit %s root equals %s',
                                 ref, remote_rev, current_rev
                             )
-                        if force:
+                        if self.config.force:
                             logger.info('Forcing merge of ref %s', ref)
                             refs_to_merge[ref] = remote_rev
 
@@ -438,14 +447,14 @@ class OTReceiveRepo(OSTree.Repo):
                 return set()
 
             # For a dry run, exit now before creating the refs
-            if dry_run:
+            if self.config.dry_run:
                 self.abort_transaction()
                 return refs_to_merge.keys()
 
             # Copy the pulled commits to the local ref so they get the
             # correct collection and ref bindings
             for ref, rev in refs_to_merge.items():
-                new_rev = self.copy_commit(rev, ref, force=force)
+                new_rev = self.copy_commit(rev, ref)
                 logger.debug('Set %s ref to %s', ref, new_rev)
 
             # All done, commit the changes
@@ -455,7 +464,7 @@ class OTReceiveRepo(OSTree.Repo):
             raise
 
         # Finally, regenerate the summary and metadata
-        if update_metadata:
+        if self.config.update:
             self.update_repo_metadata()
 
         return refs_to_merge.keys()
@@ -464,13 +473,23 @@ class OTReceiveRepo(OSTree.Repo):
 class OTReceiveArgParser(ArgumentParser):
     """ArgumentParse for ostree-receive"""
     def __init__(self):
+        config_paths = ' or '.join(map(str, OTReceiveConfig.default_paths()))
         super().__init__(
             description='Pull from a remote repo to a dev repo',
+            epilog=(
+                'Many options can also be set in a config file '
+                f'({config_paths}). The config file uses YAML syntax and '
+                'must represent a YAML mapping.'
+            ),
+
+            # The global default is set to SUPPRESS so that options
+            # don't override config defaults.
+            argument_default=SUPPRESS,
         )
         self.add_argument('repo', metavar='REPO',
                           help='repository name to use')
         self.add_argument('url', metavar='URL', help='remote repository URL')
-        self.add_argument('refs', metavar='REF', nargs='*',
+        self.add_argument('refs', metavar='REF', nargs='*', default=None,
                           help='ostree refs to pull, all if none specified')
         self.add_argument('--no-update', dest='update', action='store_false',
                           help="""don't update repo metadata""")
@@ -479,12 +498,11 @@ class OTReceiveArgParser(ArgumentParser):
         self.add_argument('-f', '--force', action='store_true',
                           help=('force pull even if nothing changed or '
                                 'remote commits are not newer'))
-        self.set_defaults(log_level=logging.INFO)
         self.add_argument('-q', '--quiet', dest='log_level',
-                          action='store_const', const=logging.WARNING,
+                          action='store_const', const='WARNING',
                           help='disable most messages')
         self.add_argument('-v', '--verbose', dest='log_level',
-                          action='store_const', const=logging.DEBUG,
+                          action='store_const', const='DEBUG',
                           help='enable verbose messages')
         self.add_argument('--version', action='version',
                           version=f'%(prog)s {VERSION}')
@@ -493,11 +511,12 @@ class OTReceiveArgParser(ArgumentParser):
 def main():
     aparser = OTReceiveArgParser()
     args = aparser.parse_args()
+    config = OTReceiveConfig.load(args=args)
 
-    logging.basicConfig(level=args.log_level)
+    logging.basicConfig(level=config.log_level)
 
-    with OTReceiveRepo(args.repo, args.url) as repo:
-        repo.receive(args.refs, args.update, args.force, args.dry_run)
+    with OTReceiveRepo(args.repo, args.url, config) as repo:
+        repo.receive(args.refs)
 
 
 if __name__ == '__main__':

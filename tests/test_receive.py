@@ -196,7 +196,7 @@ class TestReceiveRepo:
         assert str(excinfo.value) == \
             'Could not find ref missing in summary file'
 
-        merged = receive_repo.receive(['ref1'], update_metadata=False)
+        merged = receive_repo.receive(['ref1'])
         assert merged == {'ref1'}
         refs = local_refs(receive_repo)
         assert refs.keys() == {'ref1'}
@@ -253,17 +253,17 @@ class TestReceiveRepo:
         random_commit(source_repo, tmp_files_path, 'ref1')
         random_commit(source_repo, tmp_files_path, 'ref2')
 
-        merged = receive_repo.receive(['ref1'], update_metadata=False)
+        merged = receive_repo.receive(['ref1'])
         assert merged == {'ref1'}
         refs = local_refs(receive_repo)
         assert refs.keys() == {'ref1'}
 
-        merged = receive_repo.receive(['ref1', 'ref2'], update_metadata=False)
+        merged = receive_repo.receive(['ref1', 'ref2'])
         assert merged == {'ref2'}
         refs = local_refs(receive_repo)
         assert refs.keys() == {'ref1', 'ref2'}
 
-        merged = receive_repo.receive(['ref1', 'ref2'], update_metadata=False)
+        merged = receive_repo.receive(['ref1', 'ref2'])
         assert merged == set()
         refs = local_refs(receive_repo)
         assert refs.keys() == {'ref1', 'ref2'}
@@ -284,12 +284,12 @@ class TestReceiveRepo:
             'ostree-metadata',
         }
 
-        merged = receive_repo.receive([], update_metadata=False)
+        merged = receive_repo.receive([])
         assert merged == {'ref1', 'ref2'}
         refs = local_refs(receive_repo)
         assert refs.keys() == {'ref1', 'ref2'}
 
-        merged = receive_repo.receive([], update_metadata=False)
+        merged = receive_repo.receive([])
         assert merged == set()
         refs = local_refs(receive_repo)
         assert refs.keys() == {'ref1', 'ref2'}
@@ -495,8 +495,9 @@ class TestArgParser:
         assert excinfo.value.code == 2
         out, err = capsys.readouterr()
         assert out == ''
-        assert err.endswith('error: the following arguments are required: '
-                            'REPO, URL, REF\n')
+        assert err.endswith(
+            'error: the following arguments are required: REPO, URL\n'
+        )
 
     def test_no_url(self, capsys):
         ap = receive.OTReceiveArgParser()
@@ -505,8 +506,9 @@ class TestArgParser:
         assert excinfo.value.code == 2
         out, err = capsys.readouterr()
         assert out == ''
-        assert err.endswith('error: the following arguments are required: '
-                            'URL, REF\n')
+        assert err.endswith(
+            'error: the following arguments are required: URL\n'
+        )
 
     def test_defaults(self):
         ap = receive.OTReceiveArgParser()
@@ -515,10 +517,6 @@ class TestArgParser:
             repo='repo',
             url='url',
             refs=[],
-            update=True,
-            dry_run=False,
-            force=False,
-            log_level=logging.INFO,
         )
 
     def test_refs(self):
@@ -550,10 +548,10 @@ class TestArgParser:
     def test_log_level(self):
         ap = receive.OTReceiveArgParser()
         args = ap.parse_args(['-v', 'repo', 'url'])
-        assert args.log_level == logging.DEBUG
+        assert args.log_level == 'DEBUG'
         args = ap.parse_args(['--verbose', 'repo', 'url'])
-        assert args.log_level == logging.DEBUG
+        assert args.log_level == 'DEBUG'
         args = ap.parse_args(['-q', 'repo', 'url'])
-        assert args.log_level == logging.WARNING
+        assert args.log_level == 'WARNING'
         args = ap.parse_args(['--quiet', 'repo', 'url'])
-        assert args.log_level == logging.WARNING
+        assert args.log_level == 'WARNING'
