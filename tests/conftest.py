@@ -101,8 +101,13 @@ def source_server(source_repo):
 
 
 @pytest.fixture
-def receive_repo(tmp_path, source_server):
-    repo_path = tmp_path / 'receive-repo'
-    TmpRepo(repo_path)
-    with receive.OTReceiveRepo(str(repo_path), source_server.url) as repo:
+def dest_repo(tmp_path):
+    repo_path = tmp_path / 'dest-repo'
+    return TmpRepo(repo_path)
+
+
+@pytest.fixture
+def receive_repo(dest_repo, source_server):
+    repo_path = str(dest_repo.path)
+    with receive.OTReceiveRepo(repo_path, source_server.url) as repo:
         yield repo

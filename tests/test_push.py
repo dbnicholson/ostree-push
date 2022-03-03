@@ -214,11 +214,11 @@ class TestSSHMultiplexer:
 class TestPushRefs:
     DUMPENV_PATH = os.path.join(TESTSDIR, 'dumpenv')
 
-    def push_refs(self, source_repo, receive_repo, sshd, ssh_options, capfd,
+    def push_refs(self, source_repo, dest_repo, sshd, ssh_options, capfd,
                   refs=None, dry_run=False):
         """Run push.push_refs and check the remote command is correct"""
         dest = push.PushDest(host=sshd.address, port=sshd.port,
-                             repo=receive_repo.path, user=None)
+                             repo=str(dest_repo.path), user=None)
         push.push_refs(source_repo, dest, refs=refs, dry_run=dry_run,
                        ssh_options=ssh_options, command='dumpenv')
 
@@ -237,7 +237,7 @@ class TestPushRefs:
         assert next(args_iter) == self.DUMPENV_PATH
         if dry_run:
             assert next(args_iter) == '-n'
-        assert next(args_iter) == receive_repo.path
+        assert next(args_iter) == str(dest_repo.path)
         assert next(args_iter).startswith('http://127.0.0.1:')
         remaining = list(args_iter)
         if refs:
@@ -245,47 +245,47 @@ class TestPushRefs:
         else:
             assert remaining == []
 
-    def test_no_refs(self, source_repo, receive_repo, sshd, ssh_options,
+    def test_no_refs(self, source_repo, dest_repo, sshd, ssh_options,
                      tmp_files_path, capfd):
-        self.push_refs(source_repo, receive_repo, sshd, ssh_options, capfd,
+        self.push_refs(source_repo, dest_repo, sshd, ssh_options, capfd,
                        refs=None)
 
-        self.push_refs(source_repo, receive_repo, sshd, ssh_options, capfd,
+        self.push_refs(source_repo, dest_repo, sshd, ssh_options, capfd,
                        refs=[])
 
-    def test_refs(self, source_repo, receive_repo, sshd, ssh_options,
+    def test_refs(self, source_repo, dest_repo, sshd, ssh_options,
                   tmp_files_path, capfd):
         random_commit(source_repo, tmp_files_path, 'test1')
         random_commit(source_repo, tmp_files_path, 'test2')
-        self.push_refs(source_repo, receive_repo, sshd, ssh_options, capfd,
+        self.push_refs(source_repo, dest_repo, sshd, ssh_options, capfd,
                        refs=['test1'])
-        self.push_refs(source_repo, receive_repo, sshd, ssh_options, capfd,
+        self.push_refs(source_repo, dest_repo, sshd, ssh_options, capfd,
                        refs=['test2'])
-        self.push_refs(source_repo, receive_repo, sshd, ssh_options, capfd,
+        self.push_refs(source_repo, dest_repo, sshd, ssh_options, capfd,
                        refs=['test1', 'test2'])
 
-    def test_missing_ref(self, source_repo, receive_repo, sshd, ssh_options,
+    def test_missing_ref(self, source_repo, dest_repo, sshd, ssh_options,
                          tmp_files_path, capfd):
         random_commit(source_repo, tmp_files_path, 'test')
         with pytest.raises(push.OTPushError) as excinfo:
-            self.push_refs(source_repo, receive_repo, sshd, ssh_options, capfd,
+            self.push_refs(source_repo, dest_repo, sshd, ssh_options, capfd,
                            refs=['missing'])
         assert str(excinfo.value) == \
             f'Refs missing not found in {source_repo.path}'
         with pytest.raises(push.OTPushError) as excinfo:
-            self.push_refs(source_repo, receive_repo, sshd, ssh_options, capfd,
+            self.push_refs(source_repo, dest_repo, sshd, ssh_options, capfd,
                            refs=['test', 'missing'])
         assert str(excinfo.value) == \
             f'Refs missing not found in {source_repo.path}'
 
-    def test_summary(self, source_repo, receive_repo, sshd, ssh_options,
+    def test_summary(self, source_repo, dest_repo, sshd, ssh_options,
                      tmp_files_path, capfd):
         summary = Path(source_repo.path) / 'summary'
         random_commit(source_repo, tmp_files_path, 'test')
 
         # Delete the summary file and check that it gets generated.
         summary.unlink()
-        self.push_refs(source_repo, receive_repo, sshd, ssh_options, capfd)
+        self.push_refs(source_repo, dest_repo, sshd, ssh_options, capfd)
         assert summary.exists()
 
         # Set the summary mtime behind the repo and check that it gets
@@ -294,14 +294,14 @@ class TestPushRefs:
         os.utime(summary, (repo_mtime - 1, repo_mtime - 1))
         orig_summary_mtime = summary.stat().st_mtime
         assert orig_summary_mtime < repo_mtime
-        self.push_refs(source_repo, receive_repo, sshd, ssh_options, capfd)
+        self.push_refs(source_repo, dest_repo, sshd, ssh_options, capfd)
         assert summary.exists()
         new_summary_mtime = summary.stat().st_mtime
         assert new_summary_mtime > orig_summary_mtime
 
-    def test_dry_run(self, source_repo, receive_repo, sshd, ssh_options,
+    def test_dry_run(self, source_repo, dest_repo, sshd, ssh_options,
                      tmp_files_path, capfd):
-        self.push_refs(source_repo, receive_repo, sshd, ssh_options, capfd,
+        self.push_refs(source_repo, dest_repo, sshd, ssh_options, capfd,
                        dry_run=True)
 
 
