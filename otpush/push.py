@@ -342,6 +342,7 @@ def push_refs(local_repo, dest, refs=None, ssh_options=None,
                 cmd += [dest.repo, remote_url]
                 if refs is not None:
                     cmd += refs
+                logger.debug('Remote command: %s', cmd)
                 ssh.run(cmd)
 
 
