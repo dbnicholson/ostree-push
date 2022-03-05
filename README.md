@@ -91,6 +91,14 @@ features of OpenSSH and is unlikely to work with another SSH client.
 Similarly, `ostree-receive` has only be tested with the OpenSSH server,
 but it might work correctly with other SSH servers.
 
+## Configuration
+
+`ostree-receive` can be configured from YAML formatted files. It will
+load `~/.config/ostree/ostree-receive.conf` and
+`/etc/ostree/ostree-receive.conf` or a file specified in the
+`OSTREE_RECEIVE_CONF` environment variable. See the example
+[`ostree-receive.conf`](ostree-receive.conf) file for available options.
+
 ## Testing
 
 A test suite is provided using [pytest][pytest]. Most of the time simply

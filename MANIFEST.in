@@ -1,4 +1,5 @@
 include TODO
+include ostree-receive.conf
 include .flake8
 include pyproject.toml
 include pytest.ini

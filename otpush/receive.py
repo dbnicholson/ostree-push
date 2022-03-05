@@ -72,7 +72,23 @@ class OTReceiveConfigError(OTReceiveError):
 
 @dataclasses.dataclass
 class OTReceiveConfig:
-    """OTReceiveRepo configuration"""
+    """OTReceiveRepo configuration
+
+    Configuration can be provided from a file or command line arguments using
+    the load method. Config files are YAML mappings with the option names
+    below using hypens instead of underscores. By default, the paths
+    ~/.config/ostree/ostree-receive.conf and /etc/ostree/ostree-receive.conf
+    are read unless the OSTREE_RECEIVE_CONF environment variable is set. That
+    can be used to point to a file to be read.
+
+    Supported configuration options:
+
+    update: Update the repo metadata after receiving commits.
+    log_level: Set the log level. See the logging module for available levels.
+    force: Force receiving commits even if nothing changed or the remote
+      commits are not newer than the current commits.
+    dry_run: Only show what would be done without making any commits.
+    """
     update: bool = True
     log_level: str = 'INFO'
     force: bool = False
