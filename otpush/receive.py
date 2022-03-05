@@ -86,6 +86,8 @@ class OTReceiveConfig:
     root: Specify a repo root directory. When None or '', any repo path is
       allowed and paths are resolved relative to the current working
       directory. This is typically the user's home directory.
+    gpg_sign: GPG key IDs for signing received commits and repo metadata.
+    gpg_homedir: GnuPG home directory for loading GPG signing keys.
     update: Update the repo metadata after receiving commits.
     log_level: Set the log level. See the logging module for available levels.
     force: Force receiving commits even if nothing changed or the remote
@@ -93,6 +95,9 @@ class OTReceiveConfig:
     dry_run: Only show what would be done without making any commits.
     """
     root: str = None
+    # It would be nice to make this list[str], but that would break
+    gpg_sign: list = dataclasses.field(default_factory=list)
+    gpg_homedir: str = None
     update: bool = True
     log_level: str = 'INFO'
     force: bool = False
@@ -359,6 +364,12 @@ class OTReceiveRepo(OSTree.Repo):
                                                          commit_root,
                                                          commit_time)
 
+        for key in self.config.gpg_sign:
+            logger.debug('Signing commit %s with key %s',
+                         commit_checksum, key)
+            self.sign_commit(commit_checksum, key,
+                             self.config.gpg_homedir)
+
         # Update the ref
         self.transaction_set_refspec(ref, commit_checksum)
 
@@ -383,10 +394,22 @@ class OTReceiveRepo(OSTree.Repo):
         return any(filter(self._is_flatpak_ref, refs))
 
     def update_repo_metadata(self):
+        sign_opts = []
+        if self.config.gpg_sign:
+            sign_opts += [f'--gpg-sign={key}' for key in self.config.gpg_sign]
+            if self.config.gpg_homedir:
+                sign_opts.append(f'--gpg-homedir={self.config.gpg_homedir}')
         if self._is_flatpak_repo():
-            cmd = ('flatpak', 'build-update-repo', str(self.path))
+            cmd = (
+                ['flatpak', 'build-update-repo'] +
+                sign_opts +
+                [str(self.path)]
+            )
         else:
-            cmd = ('ostree', f'--repo={self.path}', 'summary', '--update')
+            cmd = (
+                ['ostree', f'--repo={self.path}', 'summary', '--update'] +
+                sign_opts
+            )
         logger.info('Updating repo metadata with %s', ' '.join(cmd))
         subprocess.check_call(cmd)
 

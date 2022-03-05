@@ -11,9 +11,12 @@ import time
 import yaml
 
 from .util import (
+    PGP_PUB_KEYRING,
+    PGP_KEY_ID,
     get_summary_variant,
     local_refs,
     needs_flatpak,
+    needs_gpg,
     needs_ostree,
     oneshot_transaction,
     random_commit,
@@ -220,6 +223,48 @@ class TestReceiveRepo:
         summary = Path(receive_repo.path) / 'summary'
         assert summary.exists()
 
+    @needs_gpg
+    def test_receive_gpg_sign(self, tmp_files_path, receive_repo, source_repo,
+                              source_server, gpg_homedir, monkeypatch):
+        random_commit(source_repo, tmp_files_path, 'ref1')
+
+        # Specifying a bogus GPG key should fail
+        receive_repo.config.gpg_sign = ['DEADBEEF']
+        receive_repo.config.gpg_homedir = str(gpg_homedir)
+        with pytest.raises(GLib.Error) as excinfo:
+            receive_repo.receive(['ref1'])
+        assert excinfo.value.matches(Gio.io_error_quark(),
+                                     Gio.IOErrorEnum.FAILED)
+
+        # Specifying both key and homedir
+        receive_repo.config.gpg_sign = [PGP_KEY_ID]
+        receive_repo.config.gpg_homedir = str(gpg_homedir)
+        merged = receive_repo.receive(['ref1'])
+        assert merged == {'ref1'}
+        refs = local_refs(receive_repo)
+        assert refs.keys() == {'ref1'}
+
+        # Validate the signature and make sure it was signed by the correct
+        # key
+        commit = refs['ref1']
+        keyring_file = Gio.File.new_for_path(str(PGP_PUB_KEYRING))
+        result = receive_repo.verify_commit_ext(commit, None, keyring_file)
+        OSTree.GpgVerifyResult.require_valid_signature(result)
+        assert OSTree.GpgVerifyResult.count_all(result) == 1
+        sig = OSTree.GpgVerifyResult.get_all(result, 0).unpack()
+        key_id = sig[OSTree.GpgSignatureAttr.FINGERPRINT]
+        assert key_id == PGP_KEY_ID
+
+        # Using the default homedir via GNUPGHOME
+        monkeypatch.setenv('GNUPGHOME', str(gpg_homedir))
+        receive_repo.config.gpg_sign = [PGP_KEY_ID]
+        receive_repo.config.gpg_homedir = None
+        wipe_repo(receive_repo)
+        merged = receive_repo.receive(['ref1'])
+        assert merged == {'ref1'}
+        refs = local_refs(receive_repo)
+        assert refs.keys() == {'ref1'}
+
     @needs_ostree
     def test_update_repo_metadata(self, tmp_files_path, receive_repo):
         summary = Path(receive_repo.path) / 'summary'
@@ -262,6 +307,18 @@ class TestReceiveRepo:
             'appstream2/x86_64',
         }
         assert 'xa.cache' in summary_metadata
+
+    @needs_gpg
+    @needs_ostree
+    def test_update_repo_metadata_gpg_sign(self, receive_repo, gpg_homedir):
+        receive_repo.config.gpg_sign = [PGP_KEY_ID]
+        receive_repo.config.gpg_homedir = str(gpg_homedir)
+        receive_repo.update_repo_metadata()
+
+        summary = Path(receive_repo.path) / 'summary'
+        summary_sig = summary.with_suffix('.sig')
+        assert summary.exists()
+        assert summary_sig.exists()
 
     def test_receive_missing(self, tmp_files_path, receive_repo, source_repo,
                              source_server):
@@ -361,6 +418,8 @@ class TestConfig:
         config = receive.OTReceiveConfig()
         assert dataclasses.asdict(config) == {
             'root': None,
+            'gpg_sign': [],
+            'gpg_homedir': None,
             'update': True,
             'log_level': 'INFO',
             'force': False,
@@ -401,6 +460,8 @@ class TestConfig:
         path = tmp_path / 'ostree-receive.conf'
         data = {
             'root': str(tmp_path / 'pub/repos'),
+            'gpg_sign': ['01234567', '89ABCDEF'],
+            'gpg_homedir': str(tmp_path / 'gnupg'),
             'update': False,
             'log_level': 'DEBUG',
             'force': True,
@@ -534,6 +595,8 @@ class TestConfig:
         config = receive.OTReceiveConfig.load(paths=[], args=args)
         assert dataclasses.asdict(config) == {
             'root': None,
+            'gpg_sign': [],
+            'gpg_homedir': None,
             'update': True,
             'log_level': 'WARNING',
             'force': False,
