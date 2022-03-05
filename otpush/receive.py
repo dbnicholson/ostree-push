@@ -83,12 +83,16 @@ class OTReceiveConfig:
 
     Supported configuration options:
 
+    root: Specify a repo root directory. When None or '', any repo path is
+      allowed and paths are resolved relative to the current working
+      directory. This is typically the user's home directory.
     update: Update the repo metadata after receiving commits.
     log_level: Set the log level. See the logging module for available levels.
     force: Force receiving commits even if nothing changed or the remote
       commits are not newer than the current commits.
     dry_run: Only show what would be done without making any commits.
     """
+    root: str = None
     update: bool = True
     log_level: str = 'INFO'
     force: bool = False
@@ -196,7 +200,7 @@ class OTReceiveRepo(OSTree.Repo):
     )
 
     def __init__(self, path, url, config=None):
-        self.path = path
+        self.path = Path(path)
         self.url = url
         self.remotes_dir = None
         self._exit_func = atexit.register(self.cleanup)
@@ -209,6 +213,21 @@ class OTReceiveRepo(OSTree.Repo):
             self.config = config
         else:
             self.config = OTReceiveConfig()
+
+        if self.config.root:
+            repo_root = Path(self.config.root).resolve()
+            if not self.path.is_absolute():
+                # Join the relative path to the root.
+                self.path = repo_root.joinpath(self.path)
+
+            # Make sure the path is below the root.
+            self.path = self.path.resolve()
+            try:
+                self.path.relative_to(repo_root)
+            except ValueError:
+                raise OTReceiveError(f'repo {path} not found') from None
+
+        logger.debug('Using repo path {self.path}')
 
         # Create a temporary remote config file. Just an empty URL is
         # needed and the rest of the parameters will be supplied in the
@@ -225,7 +244,7 @@ class OTReceiveRepo(OSTree.Repo):
         with open(remote_config_path, 'w') as f:
             remote_config.write(f, space_around_delimiters=False)
 
-        repo_file = Gio.File.new_for_path(path)
+        repo_file = Gio.File.new_for_path(os.fspath(self.path))
         super().__init__(path=repo_file, remotes_config_dir=self.remotes_dir)
         self.open()
 
@@ -365,7 +384,7 @@ class OTReceiveRepo(OSTree.Repo):
 
     def update_repo_metadata(self):
         if self._is_flatpak_repo():
-            cmd = ('flatpak', 'build-update-repo', self.path)
+            cmd = ('flatpak', 'build-update-repo', str(self.path))
         else:
             cmd = ('ostree', f'--repo={self.path}', 'summary', '--update')
         logger.info('Updating repo metadata with %s', ' '.join(cmd))

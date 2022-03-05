@@ -16,10 +16,13 @@ from .util import (
     oneshot_transaction,
     random_commit,
     wipe_repo,
+    TmpRepo,
 )
 
 gi.require_version('OSTree', '1.0')
 from gi.repository import OSTree  # noqa: E402
+
+logger = logging.getLogger(__name__)
 
 
 class TestReceiveRepo:
@@ -294,12 +297,44 @@ class TestReceiveRepo:
         refs = local_refs(receive_repo)
         assert refs.keys() == {'ref1', 'ref2'}
 
+    def test_root(self, tmp_path, tmp_files_path, source_server):
+        url = source_server.url
+        root = tmp_path / 'pub/repos'
+        root.mkdir(parents=True)
+        config = receive.OTReceiveConfig(root=str(root), update=False)
+        root_tmp_repo = TmpRepo(root / 'root-dest')
+        non_root_tmp_repo = TmpRepo(tmp_path / 'non-root-dest')
+
+        # Requesting a repo outside the root should fail
+        repo_path = non_root_tmp_repo.path
+        logger.debug('Repo path %s', repo_path)
+        with pytest.raises(receive.OTReceiveError) as excinfo:
+            receive.OTReceiveRepo(str(repo_path), url, config)
+        assert str(excinfo.value) == (
+            f'repo {non_root_tmp_repo.path} not found'
+        )
+
+        # Absolute path under the root should work
+        repo_path = root_tmp_repo.path.resolve()
+        assert repo_path.is_absolute()
+        logger.debug('Repo path %s', repo_path)
+        with receive.OTReceiveRepo(str(repo_path), url, config):
+            pass
+
+        # Relative path under the root should work
+        repo_path = root_tmp_repo.path.relative_to(root)
+        assert not repo_path.is_absolute()
+        logger.debug('Repo path %s', repo_path)
+        with receive.OTReceiveRepo(str(repo_path), url, config):
+            pass
+
 
 class TestConfig:
     """Tests for OTReceiveConfig"""
     def test_defaults(self):
         config = receive.OTReceiveConfig()
         assert dataclasses.asdict(config) == {
+            'root': None,
             'update': True,
             'log_level': 'INFO',
             'force': False,
@@ -339,6 +374,7 @@ class TestConfig:
     def test_load_valid(self, tmp_path):
         path = tmp_path / 'ostree-receive.conf'
         data = {
+            'root': str(tmp_path / 'pub/repos'),
             'update': False,
             'log_level': 'DEBUG',
             'force': True,
@@ -471,6 +507,7 @@ class TestConfig:
 
         config = receive.OTReceiveConfig.load(paths=[], args=args)
         assert dataclasses.asdict(config) == {
+            'root': None,
             'update': True,
             'log_level': 'WARNING',
             'force': False,
