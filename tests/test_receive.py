@@ -321,6 +321,21 @@ class TestConfig:
             "but found <class 'str'>"
         )
 
+    def test_default_paths(self, tmp_path, monkeypatch):
+        assert receive.OTReceiveConfig.default_paths() == [
+            Path('/etc/ostree/ostree-receive.conf'),
+            Path('~/.config/ostree/ostree-receive.conf'),
+        ]
+
+        monkeypatch.setenv('XDG_CONFIG_HOME', str(tmp_path))
+        assert receive.OTReceiveConfig.default_paths() == [
+            Path('/etc/ostree/ostree-receive.conf'),
+            tmp_path / 'ostree/ostree-receive.conf',
+        ]
+
+        monkeypatch.setenv('OSTREE_RECEIVE_CONF', str(tmp_path))
+        assert receive.OTReceiveConfig.default_paths() == [tmp_path]
+
     def test_load_valid(self, tmp_path):
         path = tmp_path / 'ostree-receive.conf'
         data = {
@@ -433,6 +448,18 @@ class TestConfig:
         assert str(excinfo.value) == (
             f'Config file {path} is not a YAML mapping'
         )
+
+    def test_load_env(self, tmp_path, monkeypatch):
+        path = tmp_path / 'ostree-receive.conf'
+        data = {
+            'log_level': 'DEBUG',
+        }
+        with path.open('w') as f:
+            yaml.dump(data, f)
+
+        monkeypatch.setenv('OSTREE_RECEIVE_CONF', str(path))
+        config = receive.OTReceiveConfig.load()
+        assert config.log_level == 'DEBUG'
 
     def test_load_args(self, caplog):
         caplog.set_level(logging.DEBUG, receive.logger.name)
