@@ -207,6 +207,20 @@ class TestReceiveRepo:
         assert refs.keys() == {'ref1'}
 
     @needs_ostree
+    def test_receive_update(self, tmp_files_path, receive_repo, source_repo,
+                            source_server):
+        receive_repo.config.update = True
+
+        random_commit(source_repo, tmp_files_path, 'ref1')
+
+        merged = receive_repo.receive(['ref1'])
+        assert merged == {'ref1'}
+        refs = local_refs(receive_repo)
+        assert refs.keys() == {'ostree-metadata', 'ref1'}
+        summary = Path(receive_repo.path) / 'summary'
+        assert summary.exists()
+
+    @needs_ostree
     def test_update_repo_metadata(self, tmp_files_path, receive_repo):
         summary = Path(receive_repo.path) / 'summary'
 
