@@ -13,6 +13,8 @@ import yaml
 from .util import (
     get_summary_variant,
     local_refs,
+    needs_flatpak,
+    needs_ostree,
     oneshot_transaction,
     random_commit,
     wipe_repo,
@@ -204,6 +206,7 @@ class TestReceiveRepo:
         refs = local_refs(receive_repo)
         assert refs.keys() == {'ref1'}
 
+    @needs_ostree
     def test_update_repo_metadata(self, tmp_files_path, receive_repo):
         summary = Path(receive_repo.path) / 'summary'
 
@@ -222,15 +225,24 @@ class TestReceiveRepo:
         assert ref_names == {'ostree-metadata', 'someref'}
         assert 'xa.cache' not in summary_metadata
 
+    @needs_flatpak
+    def test_update_repo_metadata_flatpak(self, tmp_files_path, receive_repo):
+        summary = Path(receive_repo.path) / 'summary'
+
         random_commit(receive_repo, tmp_files_path,
                       'app/com.example.App/x86_64/stable')
         receive_repo.update_repo_metadata()
         assert summary.exists()
         summary_refs, summary_metadata = get_summary_variant(summary)
         ref_names = {ref[0] for ref in summary_refs}
+
+        # Flatpak < 1.10 creates the ostree-metadata commit when the
+        # repo has a collecton ID, but newer versions don't. Add it to
+        # the generated set if it's not there already so the expected
+        # set is consistent.
+        ref_names.add('ostree-metadata')
         assert ref_names == {
             'ostree-metadata',
-            'someref',
             'app/com.example.App/x86_64/stable',
             'appstream/x86_64',
             'appstream2/x86_64',

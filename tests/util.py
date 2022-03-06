@@ -39,6 +39,16 @@ def oneshot_transaction(repo):
         raise
 
 
+needs_ostree = pytest.mark.skipif(
+    not shutil.which('ostree'), reason='ostree required'
+)
+
+
+needs_flatpak = pytest.mark.skipif(
+    not shutil.which('flatpak'), reason='flatpak required'
+)
+
+
 def random_commit(repo, tmpdir, refspec, parent=None, timestamp=None,
                   extra_metadata=None):
     """Create a random commit and set refspec to it
