@@ -227,7 +227,7 @@ class OTReceiveRepo(OSTree.Repo):
             except ValueError:
                 raise OTReceiveError(f'repo {path} not found') from None
 
-        logger.debug('Using repo path {self.path}')
+        logger.debug('Using repo path %s', self.path)
 
         # Create a temporary remote config file. Just an empty URL is
         # needed and the rest of the parameters will be supplied in the
