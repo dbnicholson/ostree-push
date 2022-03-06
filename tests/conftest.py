@@ -3,9 +3,18 @@ from otpush import push, receive
 import os
 import pytest
 import shutil
+import subprocess
 import yaml
 
-from .util import DATADIR, TESTSDIR, SRCDIR, ssh_server, TmpRepo
+from .util import (
+    DATADIR,
+    PGP_KEY,
+    TESTSDIR,
+    SRCDIR,
+    kill_gpg_agent,
+    ssh_server,
+    TmpRepo,
+)
 
 
 @pytest.fixture(scope='session')
@@ -124,3 +133,17 @@ def receive_config_path(tmp_path):
     with path.open('w') as f:
         yaml.dump(config, f)
     return path
+
+
+@pytest.fixture
+def gpg_homedir(tmp_path):
+    """Temporary GPG homedir with private key imported"""
+    homedir = tmp_path / 'gnupg'
+    homedir.mkdir(mode=0o700)
+
+    cmd = ('gpg', '--homedir', str(homedir), '--import', str(PGP_KEY))
+    subprocess.run(cmd, check=True)
+
+    yield homedir
+
+    kill_gpg_agent(homedir)

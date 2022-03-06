@@ -6,8 +6,8 @@ import logging
 import os
 import pytest
 import random
-import socket
 import shutil
+import socket
 import subprocess
 import time
 
@@ -19,6 +19,10 @@ TESTSDIR = os.path.abspath(os.path.dirname(__file__))
 DATADIR = os.path.join(TESTSDIR, 'data')
 SRCDIR = os.path.dirname(TESTSDIR)
 SCRIPTSDIR = os.path.join(SRCDIR, 'scripts')
+PGP_KEY = os.path.join(DATADIR, 'pgp-key.asc')
+PGP_PUB = os.path.join(DATADIR, 'pgp-pub.asc')
+PGP_PUB_KEYRING = os.path.join(DATADIR, 'pgp-pub.gpg')
+PGP_KEY_ID = '281D0DDC6EDD77CF6A8A936C247D3E51CDA08B6B'
 
 
 class OTPushTestError(Exception):
@@ -334,3 +338,58 @@ def ssh_server(sshd_config, host_key, authorized_keys, env_vars=None):
         if proc is not None and proc.poll() is None:
             logger.debug('Stopping sshd process %d', proc.pid)
             proc.terminate()
+
+
+needs_gpg = pytest.mark.skipif(
+    not shutil.which('gpg'), reason='gpg required'
+)
+
+
+def get_gnupg_version():
+    """Get the GnuPG version from gpg"""
+    proc = subprocess.run(['gpg', '--version'], stdout=subprocess.PIPE,
+                          check=True)
+    lines = proc.stdout.decode('utf-8').splitlines()
+    if len(lines) == 0:
+        raise OTPushTestError(
+            'No version information from gpg --version'
+        )
+
+    version = lines[0].split()[-1]
+    logger.debug('Found GnuPG version %s', version)
+    return version
+
+
+def kill_gpg_agent(gpg_homedir):
+    """Kill gpg-agent in GPG homedir"""
+    version = get_gnupg_version()
+    version_parts = version.split('.')
+    if len(version_parts) < 3:
+        raise OTPushTestError(
+            f'GnuPG version {version} has less than 3 components'
+        )
+    major, minor, patch = map(int, version_parts[0:3])
+
+    # If gpg is at least version 2.1.17, gpg-agent (properly) watches
+    # the homedir with an inotify watch and exits when it's deleted.
+    if (
+        major > 2 or
+        (major == 2 and minor > 1) or
+        (major == 2 and minor == 1 and patch > 17)
+    ):
+        logger.debug('GnuPG >= 2.1.17, skipping gpg-agent cleanup')
+        return
+
+    # Otherwise, it needs to be told to exit. Note that this is
+    # asynchronous. If the caller is deleting the homedir, there can be
+    # failures as both the caller and gpg-agent try to delete the
+    # sockets concurrently.
+    cmd = (
+        'gpg-connect-agent',
+        '--homedir',
+        str(gpg_homedir),
+        'killagent',
+        '/bye'
+    )
+    logger.debug('Killing GnuPG agent: %s', ' '.join(cmd))
+    subprocess.run(cmd, check=True)
