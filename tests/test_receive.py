@@ -31,6 +31,19 @@ logger = logging.getLogger(__name__)
 
 
 class TestReceiveRepo:
+    def test_cleanup(self, dest_repo):
+        url = 'http://example.com'
+        repo = receive.OTReceiveRepo(dest_repo.path, url)
+        remotes_dir = Path(repo.remotes_dir.name)
+        assert remotes_dir.exists()
+        del repo
+        assert not remotes_dir.exists()
+
+        with receive.OTReceiveRepo(dest_repo.path, url) as repo:
+            remotes_dir = Path(repo.remotes_dir.name)
+            assert remotes_dir.exists()
+        assert not remotes_dir.exists()
+
     def test_get_commit_timestamp(self, tmp_files_path, receive_repo):
         with pytest.raises(GLib.Error) as excinfo:
             receive_repo._get_commit_timestamp('missing')

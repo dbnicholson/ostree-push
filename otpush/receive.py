@@ -40,7 +40,6 @@ refs will be ignored.
 from . import VERSION
 
 from argparse import ArgumentParser, Namespace, SUPPRESS
-import atexit
 from collections import OrderedDict
 from configparser import ConfigParser
 import dataclasses
@@ -49,9 +48,8 @@ import gi
 import logging
 import os
 from pathlib import Path
-import shutil
 import subprocess
-import tempfile
+from tempfile import TemporaryDirectory
 import yaml
 
 gi.require_version('OSTree', '1.0')
@@ -208,7 +206,6 @@ class OTReceiveRepo(OSTree.Repo):
         self.path = Path(path)
         self.url = url
         self.remotes_dir = None
-        self._exit_func = atexit.register(self.cleanup)
 
         if config:
             if not isinstance(config, OTReceiveConfig):
@@ -237,8 +234,8 @@ class OTReceiveRepo(OSTree.Repo):
         # Create a temporary remote config file. Just an empty URL is
         # needed and the rest of the parameters will be supplied in the
         # pull options.
-        self.remotes_dir = tempfile.mkdtemp(prefix='ostree-receive-')
-        remote_config_path = os.path.join(self.remotes_dir,
+        self.remotes_dir = TemporaryDirectory(prefix='ostree-receive-')
+        remote_config_path = os.path.join(self.remotes_dir.name,
                                           f'{self.REMOTE_NAME}.conf')
         remote_config = ConfigParser()
         remote_section = f'remote "{self.REMOTE_NAME}"'
@@ -250,13 +247,11 @@ class OTReceiveRepo(OSTree.Repo):
             remote_config.write(f, space_around_delimiters=False)
 
         repo_file = Gio.File.new_for_path(os.fspath(self.path))
-        super().__init__(path=repo_file, remotes_config_dir=self.remotes_dir)
+        super().__init__(path=repo_file,
+                         remotes_config_dir=self.remotes_dir.name)
         self.open()
 
     def __enter__(self):
-        # Unregister the exit function since the cleanup will be done
-        # when exiting the context.
-        atexit.unregister(self._exit_func)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -265,10 +260,11 @@ class OTReceiveRepo(OSTree.Repo):
     def cleanup(self):
         """Cleanup instance temporary directory
 
-        This will be called automatically when the program or context exits.
+        This will be called automatically when the instance is deleted
+        or the context exits.
         """
         if self.remotes_dir:
-            shutil.rmtree(self.remotes_dir)
+            self.remotes_dir.cleanup()
             self.remotes_dir = None
 
     def _get_commit_timestamp(self, rev):
