@@ -29,6 +29,8 @@ jobs:
   tests:
     name: Run test suite
     strategy:
+      # Let other configurations continue if one fails.
+      fail-fast: false
       matrix:
         os:
           - ubuntu-20.04
