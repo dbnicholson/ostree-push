@@ -312,6 +312,8 @@ def ssh_server(sshd_config, host_key, authorized_keys, env_vars=None):
         '-o', f'AuthorizedKeysFile={authorized_keys}',
         # Only allow running user
         '-o', f'AllowUsers={getpass.getuser()}',
+        # Allow root login
+        '-o', 'PermitRootLogin=yes',
         # Set environment variables for the process
         '-o', f'SetEnv={setenv}',
     ]
