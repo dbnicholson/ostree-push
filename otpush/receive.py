@@ -48,6 +48,7 @@ import gi
 import logging
 import os
 from pathlib import Path
+import shlex
 import subprocess
 from tempfile import TemporaryDirectory
 import yaml
@@ -87,6 +88,11 @@ class OTReceiveConfig:
     gpg_sign: GPG key IDs for signing received commits and repo metadata.
     gpg_homedir: GnuPG home directory for loading GPG signing keys.
     update: Update the repo metadata after receiving commits.
+    update_hook: Program to run after new commits have been made. The program
+      will be executed with the environment variable OSTREE_RECEIVE_REPO set
+      to the absolute path of the OSTree repository and the environment
+      variable OSTREE_RECEIVE_REFS set to the set of refs received separated
+      by whitespace.
     log_level: Set the log level. See the logging module for available levels.
     force: Force receiving commits even if nothing changed or the remote
       commits are not newer than the current commits.
@@ -97,6 +103,7 @@ class OTReceiveConfig:
     gpg_sign: list = dataclasses.field(default_factory=list)
     gpg_homedir: str = None
     update: bool = True
+    update_hook: str = None
     log_level: str = 'INFO'
     force: bool = False
     dry_run: bool = False
@@ -409,6 +416,27 @@ class OTReceiveRepo(OSTree.Repo):
         logger.info('Updating repo metadata with %s', ' '.join(cmd))
         subprocess.check_call(cmd)
 
+    def update_repo_hook(self, refs):
+        """Run the configured update_hook
+
+        The program will be executed with the environment variable
+        OSTREE_RECEIVE_REPO set to the absolute path of the OSTree repository
+        and the environment variable OSTREE_RECEIVE_REFS set to the set of
+        refs received separated by whitespace.
+        """
+        if not self.config.update_hook:
+            raise OTReceiveConfigError('update_hook not set in configuration')
+
+        cmd = shlex.split(self.config.update_hook)
+        env = os.environ.copy()
+        env['OSTREE_RECEIVE_REPO'] = os.fspath(self.path.absolute())
+        env['OSTREE_RECEIVE_REFS'] = ' '.join(refs)
+
+        logger.info('Updating repo with %s', self.config.update_hook)
+        logger.debug('OSTREE_RECEIVE_REPO=%s', env['OSTREE_RECEIVE_REPO'])
+        logger.debug('OSTREE_RECEIVE_REFS=%s', env['OSTREE_RECEIVE_REFS'])
+        subprocess.check_call(cmd, env=env)
+
     def receive(self, refs):
         # See what revisions we're pulling.
         _, remote_refs = self.remote_list_refs(self.REMOTE_NAME)
@@ -519,7 +547,10 @@ class OTReceiveRepo(OSTree.Repo):
 
         # Finally, regenerate the summary and metadata
         if self.config.update:
-            self.update_repo_metadata()
+            if self.config.update_hook:
+                self.update_repo_hook(refs_to_merge.keys())
+            else:
+                self.update_repo_metadata()
 
         return refs_to_merge.keys()
 

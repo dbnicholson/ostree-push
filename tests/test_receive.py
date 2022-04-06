@@ -4,7 +4,9 @@ import argparse
 import dataclasses
 import gi
 from gi.repository import GLib, Gio
+import json
 import logging
+import os
 from pathlib import Path
 import pytest
 import time
@@ -13,6 +15,7 @@ import yaml
 from .util import (
     PGP_PUB_KEYRING,
     PGP_KEY_ID,
+    TESTSDIR,
     get_summary_variant,
     local_refs,
     needs_flatpak,
@@ -236,6 +239,21 @@ class TestReceiveRepo:
         summary = Path(receive_repo.path) / 'summary'
         assert summary.exists()
 
+    def test_receive_update_hook(self, tmp_files_path, receive_repo,
+                                 source_repo, source_server):
+        dumpenv = os.path.join(TESTSDIR, 'dumpenv')
+        receive_repo.config.update = True
+        receive_repo.config.update_hook = dumpenv
+
+        random_commit(source_repo, tmp_files_path, 'ref1')
+
+        merged = receive_repo.receive(['ref1'])
+        assert merged == {'ref1'}
+        refs = local_refs(receive_repo)
+        assert refs.keys() == {'ref1'}
+        summary = Path(receive_repo.path) / 'summary'
+        assert not summary.exists()
+
     @needs_gpg
     def test_receive_gpg_sign(self, tmp_files_path, receive_repo, source_repo,
                               source_server, gpg_homedir, monkeypatch):
@@ -332,6 +350,59 @@ class TestReceiveRepo:
         summary_sig = summary.with_suffix('.sig')
         assert summary.exists()
         assert summary_sig.exists()
+
+    def test_update_repo_hook(self, receive_repo, tmp_path, monkeypatch):
+        dumpenv = os.path.join(TESTSDIR, 'dumpenv')
+        dumpenv_dest = tmp_path / 'dumpenv.json'
+        monkeypatch.setenv('DUMPENV_DEST', str(dumpenv_dest))
+
+        # Exported environment variables
+        receive_repo.config.update_hook = dumpenv
+        receive_repo.update_repo_hook(['foo', 'bar'])
+        with dumpenv_dest.open() as f:
+            data = json.load(f)
+        assert data['env']['OSTREE_RECEIVE_REPO'] == str(
+            receive_repo.path.absolute()
+        )
+        assert data['env']['OSTREE_RECEIVE_REFS'] == 'foo bar'
+
+        # Wrong refs passed
+        with pytest.raises(TypeError):
+            receive_repo.update_repo_hook(None)
+
+        # No hook configured
+        receive_repo.config.update_hook = None
+        with pytest.raises(receive.OTReceiveConfigError) as excinfo:
+            receive_repo.update_repo_hook([])
+        assert str(excinfo.value) == 'update_hook not set in configuration'
+
+        # Missing or non-executable hook
+        hook = tmp_path / 'hook'
+        receive_repo.config.update_hook = str(hook)
+        with pytest.raises(FileNotFoundError):
+            receive_repo.update_repo_hook([])
+        hook.touch()
+        with pytest.raises(PermissionError):
+            receive_repo.update_repo_hook([])
+
+        # Hook argument parsing
+        receive_repo.config.update_hook = f'{dumpenv} foo bar'
+        receive_repo.update_repo_hook([])
+        with dumpenv_dest.open() as f:
+            data = json.load(f)
+        assert data['args'] == [dumpenv, 'foo', 'bar']
+
+        receive_repo.config.update_hook = f'{dumpenv} "foo bar"'
+        receive_repo.update_repo_hook([])
+        with dumpenv_dest.open() as f:
+            data = json.load(f)
+        assert data['args'] == [dumpenv, 'foo bar']
+
+        receive_repo.config.update_hook = fr'{dumpenv} foo\ bar'
+        receive_repo.update_repo_hook([])
+        with dumpenv_dest.open() as f:
+            data = json.load(f)
+        assert data['args'] == [dumpenv, 'foo bar']
 
     def test_receive_missing(self, tmp_files_path, receive_repo, source_repo,
                              source_server):
@@ -434,6 +505,7 @@ class TestConfig:
             'gpg_sign': [],
             'gpg_homedir': None,
             'update': True,
+            'update_hook': None,
             'log_level': 'INFO',
             'force': False,
             'dry_run': False,
@@ -476,6 +548,7 @@ class TestConfig:
             'gpg_sign': ['01234567', '89ABCDEF'],
             'gpg_homedir': str(tmp_path / 'gnupg'),
             'update': False,
+            'update_hook': '/foo/bar baz',
             'log_level': 'DEBUG',
             'force': True,
             'dry_run': True,
@@ -611,6 +684,7 @@ class TestConfig:
             'gpg_sign': [],
             'gpg_homedir': None,
             'update': True,
+            'update_hook': None,
             'log_level': 'WARNING',
             'force': False,
             'dry_run': False,
