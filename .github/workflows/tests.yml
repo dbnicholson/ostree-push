@@ -32,6 +32,24 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: Debian Stable
+            image: debian:stable-slim
+            setup: |
+              apt-get update
+              apt-get -y install \
+                build-essential \
+                flatpak \
+                gir1.2-ostree-1.0 \
+                libcairo2-dev \
+                libgirepository1.0-dev \
+                openssh-client \
+                openssh-server \
+                ostree \
+                python3-dev \
+                python3-pip \
+                python3-setuptools \
+                python3-wheel
+
           - name: Ubuntu LTS
             image: ubuntu:latest
             setup: |
