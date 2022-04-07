@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import subprocess
@@ -15,16 +16,25 @@ pytestmark = needs_sshd
 
 
 def test_basic(sshd, ssh_options):
-    cmd = ['ssh', '-p', str(sshd.port)] + ssh_options + [sshd.address, 'env']
+    cmd = (
+        ['ssh', '-p', str(sshd.port)] +
+        ssh_options +
+        [sshd.address, 'dumpenv']
+    )
     logger.debug('SSH command: %s', ' '.join(cmd))
-    logger.debug('PATH=%s', os.getenv('PATH'))
+    logger.debug('Source PATH=%s', os.getenv('PATH'))
     out = subprocess.check_output(cmd)
-    env_lines = out.decode('utf-8').splitlines()
-    env = dict([line.split('=', 1) for line in env_lines])
+    data = json.loads(out.decode('utf-8'))
+
+    args = data['args']
+    assert args == [os.path.join(TESTSDIR, 'dumpenv')]
+
+    env = data['env']
     assert 'PATH' in env
     assert 'PYTHONPATH' in env
 
     path = env['PATH'].split(os.pathsep)
+    logger.debug('Destination PATH=%s', path)
     if 'TOXBINDIR' in os.environ:
         assert path[0] == os.environ['TOXBINDIR']
         assert path[1] == TESTSDIR
@@ -32,5 +42,6 @@ def test_basic(sshd, ssh_options):
         assert path[0] == TESTSDIR
 
     pypath = env['PYTHONPATH'].split(os.pathsep)
+    logger.debug('Destination PYTHONPATH=%s', path)
     if 'TOXBINDIR' not in os.environ:
         assert pypath[0] == SRCDIR
