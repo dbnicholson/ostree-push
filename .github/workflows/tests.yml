@@ -50,6 +50,21 @@ jobs:
                 python3-setuptools \
                 python3-wheel
 
+          - name: Fedora Stable
+            image: fedora:latest
+            setup: |
+              dnf -y install \
+                cairo-gobject-devel \
+                flatpak \
+                gobject-introspection-devel \
+                openssh-clients \
+                openssh-server \
+                ostree \
+                ostree-libs \
+                passwd \
+                python3-devel \
+                python3-pip
+
           - name: Ubuntu LTS
             image: ubuntu:latest
             setup: |
@@ -86,6 +101,11 @@ jobs:
       - name: Create sshd privilege separation directory
         run: |
           mkdir -p /run/sshd
+
+      # sshd won't allow root login if the account is locked.
+      - name: Ensure root account unlocked
+        run: |
+          passwd -u root
 
       - name: Install python dependencies
         run: |
