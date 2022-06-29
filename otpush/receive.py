@@ -87,6 +87,7 @@ class OTReceiveConfig:
       directory. This is typically the user's home directory.
     gpg_sign: GPG key IDs for signing received commits and repo metadata.
     gpg_homedir: GnuPG home directory for loading GPG signing keys.
+    gpg_trustedkeys: GPG keyring for verifying received commits.
     update: Update the repo metadata after receiving commits.
     update_hook: Program to run after new commits have been made. The program
       will be executed with the environment variable OSTREE_RECEIVE_REPO set
@@ -102,6 +103,7 @@ class OTReceiveConfig:
     # It would be nice to make this list[str], but that would break
     gpg_sign: list = dataclasses.field(default_factory=list)
     gpg_homedir: str = None
+    gpg_trustedkeys: str = None
     update: bool = True
     update_hook: str = None
     log_level: str = 'INFO'
@@ -248,7 +250,18 @@ class OTReceiveRepo(OSTree.Repo):
         remote_section = f'remote "{self.REMOTE_NAME}"'
         remote_config.add_section(remote_section)
         remote_config[remote_section]['url'] = self.url
-        remote_config[remote_section]['gpg-verify'] = 'false'
+        if self.config.gpg_trustedkeys:
+            if not os.path.exists(self.config.gpg_trustedkeys):
+                raise OTReceiveConfigError(
+                    f'gpg_trustedkeys keyring "{self.config.gpg_trustedkeys}" '
+                    'does not exist',
+                )
+            remote_config[remote_section]['gpgkeypath'] = (
+                os.path.realpath(self.config.gpg_trustedkeys)
+            )
+            remote_config[remote_section]['gpg-verify'] = 'true'
+        else:
+            remote_config[remote_section]['gpg-verify'] = 'false'
         remote_config[remote_section]['gpg-verify-summary'] = 'false'
         with open(remote_config_path, 'w') as f:
             remote_config.write(f, space_around_delimiters=False)

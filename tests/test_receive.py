@@ -13,6 +13,7 @@ import time
 import yaml
 
 from .util import (
+    PGP_PUB,
     PGP_PUB_KEYRING,
     PGP_KEY_ID,
     TESTSDIR,
@@ -296,6 +297,60 @@ class TestReceiveRepo:
         refs = local_refs(receive_repo)
         assert refs.keys() == {'ref1'}
 
+    @needs_gpg
+    def test_receive_gpg_verify(self, tmp_path, tmp_files_path, dest_repo,
+                                source_repo, source_server, gpg_homedir,
+                                monkeypatch):
+        # Specifying a missing GPG keyring should fail
+        keyring_path = str(tmp_path / 'missing.gpg')
+        config = receive.OTReceiveConfig(gpg_trustedkeys=keyring_path,
+                                         update=False)
+        repo_path = str(dest_repo.path)
+        with pytest.raises(receive.OTReceiveConfigError) as excinfo:
+            receive.OTReceiveRepo(repo_path, source_server.url, config)
+        assert str(excinfo.value) == (
+            f'gpg_trustedkeys keyring "{keyring_path}" does not exist'
+        )
+
+        # Receiving an unsigned commit should fail.
+        random_commit(source_repo, tmp_files_path, 'ref1')
+        config = receive.OTReceiveConfig(gpg_trustedkeys=str(PGP_PUB_KEYRING),
+                                         update=False)
+        repo = receive.OTReceiveRepo(repo_path, source_server.url, config)
+        with pytest.raises(GLib.Error) as excinfo:
+            repo.receive(['ref1'])
+        assert excinfo.value.matches(OSTree.gpg_error_quark(),
+                                     OSTree.GpgError.NO_SIGNATURE)
+
+        # Receiving a signed commit should succeed.
+        random_commit(source_repo, tmp_files_path, 'ref1',
+                      gpg_key_id=PGP_KEY_ID, gpg_homedir=str(gpg_homedir))
+        config = receive.OTReceiveConfig(
+            gpg_trustedkeys=str(PGP_PUB_KEYRING),
+            update=False,
+        )
+        repo = receive.OTReceiveRepo(repo_path, source_server.url, config)
+        wipe_repo(repo)
+        merged = repo.receive(['ref1'])
+        assert merged == {'ref1'}
+        refs = local_refs(repo)
+        assert refs.keys() == {'ref1'}
+
+        # Using an ASCII armored key instead of a PGP keyring should
+        # also work.
+        random_commit(source_repo, tmp_files_path, 'ref1',
+                      gpg_key_id=PGP_KEY_ID, gpg_homedir=str(gpg_homedir))
+        config = receive.OTReceiveConfig(
+            gpg_trustedkeys=str(PGP_PUB),
+            update=False,
+        )
+        repo = receive.OTReceiveRepo(repo_path, source_server.url, config)
+        wipe_repo(repo)
+        merged = repo.receive(['ref1'])
+        assert merged == {'ref1'}
+        refs = local_refs(repo)
+        assert refs.keys() == {'ref1'}
+
     @needs_ostree
     def test_update_repo_metadata(self, tmp_files_path, receive_repo):
         summary = Path(receive_repo.path) / 'summary'
@@ -504,6 +559,7 @@ class TestConfig:
             'root': None,
             'gpg_sign': [],
             'gpg_homedir': None,
+            'gpg_trustedkeys': None,
             'update': True,
             'update_hook': None,
             'log_level': 'INFO',
@@ -547,6 +603,7 @@ class TestConfig:
             'root': str(tmp_path / 'pub/repos'),
             'gpg_sign': ['01234567', '89ABCDEF'],
             'gpg_homedir': str(tmp_path / 'gnupg'),
+            'gpg_trustedkeys': str(tmp_path / 'trustedkeys.gpg'),
             'update': False,
             'update_hook': '/foo/bar baz',
             'log_level': 'DEBUG',
@@ -683,6 +740,7 @@ class TestConfig:
             'root': None,
             'gpg_sign': [],
             'gpg_homedir': None,
+            'gpg_trustedkeys': None,
             'update': True,
             'update_hook': None,
             'log_level': 'WARNING',

@@ -54,7 +54,7 @@ needs_flatpak = pytest.mark.skipif(
 
 
 def random_commit(repo, tmpdir, refspec, parent=None, timestamp=None,
-                  extra_metadata=None):
+                  extra_metadata=None, gpg_key_id=None, gpg_homedir=None):
     """Create a random commit and set refspec to it
 
     Returns the new commit checksum.
@@ -98,6 +98,10 @@ def random_commit(repo, tmpdir, refspec, parent=None, timestamp=None,
                                                   metadata_var,
                                                   root,
                                                   timestamp)
+
+        # Sign the commit
+        if gpg_key_id:
+            repo.sign_commit(checksum, gpg_key_id, gpg_homedir)
 
         # Set the ref
         if remote is None:
