@@ -87,7 +87,12 @@ class OTReceiveConfig:
       directory. This is typically the user's home directory.
     gpg_sign: GPG key IDs for signing received commits and repo metadata.
     gpg_homedir: GnuPG home directory for loading GPG signing keys.
-    gpg_trustedkeys: GPG keyring for verifying received commits.
+    gpg_verify: Whether to verify received commits with GPG.
+    gpg_trustedkeys: GPG keyring for verifying received commits. If None
+      or '', keyrings at ~/.config/ostree/ostree-receive-trustedkeys.gpg
+      or /etc/ostree/ostree-receive-trustedkeys.gpg will be used. OSTree
+      will also use the global trusted keyrings in
+      /usr/share/ostree/trusted.gpg.d.
     update: Update the repo metadata after receiving commits.
     update_hook: Program to run after new commits have been made. The program
       will be executed with the environment variable OSTREE_RECEIVE_REPO set
@@ -103,6 +108,7 @@ class OTReceiveConfig:
     # It would be nice to make this list[str], but that would break
     gpg_sign: list = dataclasses.field(default_factory=list)
     gpg_homedir: str = None
+    gpg_verify: bool = False
     gpg_trustedkeys: str = None
     update: bool = True
     update_hook: str = None
@@ -250,15 +256,10 @@ class OTReceiveRepo(OSTree.Repo):
         remote_section = f'remote "{self.REMOTE_NAME}"'
         remote_config.add_section(remote_section)
         remote_config[remote_section]['url'] = self.url
-        if self.config.gpg_trustedkeys:
-            if not os.path.exists(self.config.gpg_trustedkeys):
-                raise OTReceiveConfigError(
-                    f'gpg_trustedkeys keyring "{self.config.gpg_trustedkeys}" '
-                    'does not exist',
-                )
-            remote_config[remote_section]['gpgkeypath'] = (
-                os.path.realpath(self.config.gpg_trustedkeys)
-            )
+        if self.config.gpg_verify:
+            trustedkeys = self._get_trustedkeys()
+            if trustedkeys:
+                remote_config[remote_section]['gpgkeypath'] = trustedkeys
             remote_config[remote_section]['gpg-verify'] = 'true'
         else:
             remote_config[remote_section]['gpg-verify'] = 'false'
@@ -286,6 +287,32 @@ class OTReceiveRepo(OSTree.Repo):
         if self.remotes_dir:
             self.remotes_dir.cleanup()
             self.remotes_dir = None
+
+    def _get_trustedkeys(self):
+        """Get the GPG trusted keyring for verification"""
+        if self.config.gpg_trustedkeys:
+            if not os.path.exists(self.config.gpg_trustedkeys):
+                raise OTReceiveConfigError(
+                    f'gpg_trustedkeys keyring "{self.config.gpg_trustedkeys}" '
+                    'does not exist',
+                )
+            path = os.path.realpath(self.config.gpg_trustedkeys)
+            logger.debug('Using GPG trusted keyring %s', path)
+            return path
+        else:
+            config_home = Path(os.getenv('XDG_CONFIG_HOME', '~/.config'))
+            default_paths = [
+                Path('/etc/ostree/ostree-receive-trustedkeys.gpg'),
+                config_home / 'ostree/ostree-receive-trustedkeys.gpg'
+            ]
+
+            for path in default_paths:
+                path = path.expanduser().resolve()
+                if path.exists():
+                    logger.debug('Using default GPG trusted keyring %s', path)
+                    return os.fspath(path)
+
+            return None
 
     def _get_commit_timestamp(self, rev):
         """Get the timestamp of a commit"""

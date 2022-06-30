@@ -303,7 +303,8 @@ class TestReceiveRepo:
                                 monkeypatch):
         # Specifying a missing GPG keyring should fail
         keyring_path = str(tmp_path / 'missing.gpg')
-        config = receive.OTReceiveConfig(gpg_trustedkeys=keyring_path,
+        config = receive.OTReceiveConfig(gpg_verify=True,
+                                         gpg_trustedkeys=keyring_path,
                                          update=False)
         repo_path = str(dest_repo.path)
         with pytest.raises(receive.OTReceiveConfigError) as excinfo:
@@ -314,7 +315,8 @@ class TestReceiveRepo:
 
         # Receiving an unsigned commit should fail.
         random_commit(source_repo, tmp_files_path, 'ref1')
-        config = receive.OTReceiveConfig(gpg_trustedkeys=str(PGP_PUB_KEYRING),
+        config = receive.OTReceiveConfig(gpg_verify=True,
+                                         gpg_trustedkeys=str(PGP_PUB_KEYRING),
                                          update=False)
         repo = receive.OTReceiveRepo(repo_path, source_server.url, config)
         with pytest.raises(GLib.Error) as excinfo:
@@ -325,10 +327,9 @@ class TestReceiveRepo:
         # Receiving a signed commit should succeed.
         random_commit(source_repo, tmp_files_path, 'ref1',
                       gpg_key_id=PGP_KEY_ID, gpg_homedir=str(gpg_homedir))
-        config = receive.OTReceiveConfig(
-            gpg_trustedkeys=str(PGP_PUB_KEYRING),
-            update=False,
-        )
+        config = receive.OTReceiveConfig(gpg_verify=True,
+                                         gpg_trustedkeys=str(PGP_PUB_KEYRING),
+                                         update=False)
         repo = receive.OTReceiveRepo(repo_path, source_server.url, config)
         wipe_repo(repo)
         merged = repo.receive(['ref1'])
@@ -340,10 +341,24 @@ class TestReceiveRepo:
         # also work.
         random_commit(source_repo, tmp_files_path, 'ref1',
                       gpg_key_id=PGP_KEY_ID, gpg_homedir=str(gpg_homedir))
-        config = receive.OTReceiveConfig(
-            gpg_trustedkeys=str(PGP_PUB),
-            update=False,
-        )
+        config = receive.OTReceiveConfig(gpg_verify=True,
+                                         gpg_trustedkeys=str(PGP_PUB),
+                                         update=False)
+        repo = receive.OTReceiveRepo(repo_path, source_server.url, config)
+        wipe_repo(repo)
+        merged = repo.receive(['ref1'])
+        assert merged == {'ref1'}
+        refs = local_refs(repo)
+        assert refs.keys() == {'ref1'}
+
+        # Using the user's default keyring.
+        random_commit(source_repo, tmp_files_path, 'ref1',
+                      gpg_key_id=PGP_KEY_ID, gpg_homedir=str(gpg_homedir))
+        monkeypatch.setenv('XDG_CONFIG_HOME', str(tmp_path))
+        keyring = tmp_path / 'ostree/ostree-receive-trustedkeys.gpg'
+        keyring.parent.mkdir(exist_ok=True)
+        keyring.symlink_to(PGP_PUB_KEYRING)
+        config = receive.OTReceiveConfig(gpg_verify=True, update=False)
         repo = receive.OTReceiveRepo(repo_path, source_server.url, config)
         wipe_repo(repo)
         merged = repo.receive(['ref1'])
@@ -559,6 +574,7 @@ class TestConfig:
             'root': None,
             'gpg_sign': [],
             'gpg_homedir': None,
+            'gpg_verify': False,
             'gpg_trustedkeys': None,
             'update': True,
             'update_hook': None,
@@ -603,6 +619,7 @@ class TestConfig:
             'root': str(tmp_path / 'pub/repos'),
             'gpg_sign': ['01234567', '89ABCDEF'],
             'gpg_homedir': str(tmp_path / 'gnupg'),
+            'gpg_verify': True,
             'gpg_trustedkeys': str(tmp_path / 'trustedkeys.gpg'),
             'update': False,
             'update_hook': '/foo/bar baz',
@@ -740,6 +757,7 @@ class TestConfig:
             'root': None,
             'gpg_sign': [],
             'gpg_homedir': None,
+            'gpg_verify': False,
             'gpg_trustedkeys': None,
             'update': True,
             'update_hook': None,
