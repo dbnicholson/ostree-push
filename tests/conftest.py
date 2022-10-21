@@ -76,6 +76,7 @@ def ssh_options(sshd, ssh_datadir):
     id_file = ssh_datadir / 'id_rsa'
     return [
         '-i', str(id_file),
+        '-o', 'IdentitiesOnly=yes',
         '-o', 'StrictHostKeyChecking=no',
         '-o', 'UserKnownHostsFile=/dev/null',
     ]
