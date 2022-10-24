@@ -8,6 +8,8 @@ import yaml
 
 from .util import (
     DATADIR,
+    ED25519_PRIVATE_KEY,
+    ED25519_PUBLIC_KEY,
     PGP_KEY,
     TESTSDIR,
     SRCDIR,
@@ -148,3 +150,17 @@ def gpg_homedir(tmp_path):
     yield homedir
 
     kill_gpg_agent(homedir)
+
+
+@pytest.fixture
+def ed25519_public_keyfile(tmp_path):
+    dest = tmp_path / 'public.ed25519'
+    dest.write_text(ED25519_PUBLIC_KEY)
+    return str(dest)
+
+
+@pytest.fixture
+def ed25519_private_keyfile(tmp_path):
+    dest = tmp_path / 'private.ed25519'
+    dest.write_text(ED25519_PRIVATE_KEY)
+    return str(dest)
