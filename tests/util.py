@@ -9,6 +9,7 @@ import random
 import shutil
 import socket
 import subprocess
+from tempfile import TemporaryDirectory
 import time
 
 gi.require_version('OSTree', '1.0')
@@ -357,8 +358,24 @@ def ssh_server(sshd_config, host_key, authorized_keys, env_vars=None):
             proc.terminate()
 
 
+def have_gpg_support():
+    if shutil.which('gpg') is None:
+        return False
+
+    with TemporaryDirectory() as tempdir:
+        repo = OSTree.Repo.new(Gio.File.new_for_path(tempdir))
+        try:
+            repo.gpg_sign_data(GLib.Bytes.new(b''), GLib.Bytes.new(b''), [],
+                               None)
+        except GLib.Error as ex:
+            assert 'GPG feature is disabled' in ex.message
+            return False
+
+    return True
+
+
 needs_gpg = pytest.mark.skipif(
-    not shutil.which('gpg'), reason='gpg required'
+    not have_gpg_support(), reason='gpg support required'
 )
 
 
