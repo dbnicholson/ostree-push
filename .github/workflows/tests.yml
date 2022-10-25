@@ -34,6 +34,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: Arch Base
+            image: archlinux:base
+            setup: |
+              pacman -Sy --noconfirm \
+                base-devel \
+                cairo \
+                flatpak \
+                gobject-introspection \
+                openssh \
+                ostree \
+                python-pip \
+                python-setuptools \
+                python-wheel
+
           - name: Debian Stable
             image: debian:stable-slim
             setup: |
