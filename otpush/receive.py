@@ -93,6 +93,14 @@ class OTReceiveConfig:
       or /etc/ostree/ostree-receive-trustedkeys.gpg will be used. OSTree
       will also use the global trusted keyrings in
       /usr/share/ostree/trusted.gpg.d.
+    sign_type: OSTree non-GPG signature type.
+    sign_keyfiles: sign_type key files for signing received commits and repo
+      metadata.
+    sign_verify: Whether to verify received commits with sign_type.
+    sign_trustedkeyfile: Keyfile for verifying received commits using
+      sign_type. If null or '', the keyfile at
+      ~/.config/ostree/ostree-receive-trustedkeyfile.SIGNTYPE or
+      /etc/ostree/ostree-receive-trustedkeyfile.SIGNTYPE will be used.
     update: Update the repo metadata after receiving commits.
     update_hook: Program to run after new commits have been made. The program
       will be executed with the environment variable OSTREE_RECEIVE_REPO set
@@ -110,6 +118,10 @@ class OTReceiveConfig:
     gpg_homedir: str = None
     gpg_verify: bool = False
     gpg_trustedkeys: str = None
+    sign_type: str = 'ed25519'
+    sign_keyfiles: list = dataclasses.field(default_factory=list)
+    sign_verify: bool = False
+    sign_trustedkeyfile: str = None
     update: bool = True
     update_hook: str = None
     log_level: str = 'INFO'
@@ -257,13 +269,21 @@ class OTReceiveRepo(OSTree.Repo):
         remote_config.add_section(remote_section)
         remote_config[remote_section]['url'] = self.url
         if self.config.gpg_verify:
-            trustedkeys = self._get_trustedkeys()
+            trustedkeys = self._get_gpg_trustedkeys()
             if trustedkeys:
                 remote_config[remote_section]['gpgkeypath'] = trustedkeys
             remote_config[remote_section]['gpg-verify'] = 'true'
         else:
             remote_config[remote_section]['gpg-verify'] = 'false'
         remote_config[remote_section]['gpg-verify-summary'] = 'false'
+        if self.config.sign_verify:
+            verification_config = f'verification-{self.config.sign_type}-file'
+            trustedkeyfile = self._get_sign_trustedkeyfile()
+            if trustedkeyfile:
+                remote_config[remote_section][verification_config] = \
+                    trustedkeyfile
+            remote_config[remote_section]['sign-verify'] = 'true'
+            remote_config[remote_section]['sign-verify-summary'] = 'false'
         with open(remote_config_path, 'w') as f:
             remote_config.write(f, space_around_delimiters=False)
 
@@ -288,7 +308,7 @@ class OTReceiveRepo(OSTree.Repo):
             self.remotes_dir.cleanup()
             self.remotes_dir = None
 
-    def _get_trustedkeys(self):
+    def _get_gpg_trustedkeys(self):
         """Get the GPG trusted keyring for verification"""
         if self.config.gpg_trustedkeys:
             if not os.path.exists(self.config.gpg_trustedkeys):
@@ -313,6 +333,48 @@ class OTReceiveRepo(OSTree.Repo):
                     return os.fspath(path)
 
             return None
+
+    def _get_sign_trustedkeyfile(self):
+        """Get the GPG trusted keyring for verification"""
+        if self.config.sign_trustedkeyfile:
+            if not os.path.exists(self.config.sign_trustedkeyfile):
+                self._report_missing_keyfile(self.config.sign_trustedkeyfile,
+                                             from_config='sign_trustedkeyfile')
+            path = os.path.realpath(self.config.sign_trustedkeyfile)
+            logger.debug('Using trusted keyfile %s', path)
+            return path
+        else:
+            config_home = Path(os.getenv('XDG_CONFIG_HOME', '~/.config'))
+            basename = f'ostree-receive-trustedkeyfile.{self.config.sign_type}'
+            default_paths = [
+                Path(f'/etc/ostree/{basename}'),
+                config_home / f'ostree/{basename}'
+            ]
+
+            for path in default_paths:
+                path = path.expanduser().resolve()
+                if path.exists():
+                    logger.debug('Using default trusted keyfile %s', path)
+                    return os.fspath(path)
+
+            return None
+
+    def _read_keyfile_keys(self, keyfile, *, from_config):
+        try:
+            with open(keyfile) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+
+                    yield line
+        except FileNotFoundError:
+            self._report_missing_keyfile(keyfile, from_config=from_config)
+
+    def _report_missing_keyfile(self, keyfile, *, from_config):
+        raise OTReceiveConfigError(
+            f'{from_config} keyfile "{keyfile}" does not exist'
+        )
 
     def _get_commit_timestamp(self, rev):
         """Get the timestamp of a commit"""
@@ -408,10 +470,22 @@ class OTReceiveRepo(OSTree.Repo):
                                                          commit_time)
 
         for key in self.config.gpg_sign:
-            logger.debug('Signing commit %s with key %s',
+            logger.debug('Signing commit %s with GPG key %s',
                          commit_checksum, key)
             self.sign_commit(commit_checksum, key,
                              self.config.gpg_homedir)
+
+        if self.config.sign_keyfiles:
+            sign = OSTree.Sign.get_by_name(self.config.sign_type)
+            for keyfile in self.config.sign_keyfiles:
+                logging.debug('Signing commit %s with %s keys from %s',
+                              commit_checksum, sign.get_name(), keyfile)
+
+                for key in self._read_keyfile_keys(
+                        keyfile,
+                        from_config='sign_keyfiles'):
+                    sign.set_sk(GLib.Variant('s', key))
+                    sign.commit(self, commit_checksum, None)
 
         # Update the ref
         self.transaction_set_refspec(ref, commit_checksum)
@@ -442,19 +516,30 @@ class OTReceiveRepo(OSTree.Repo):
             sign_opts += [f'--gpg-sign={key}' for key in self.config.gpg_sign]
             if self.config.gpg_homedir:
                 sign_opts.append(f'--gpg-homedir={self.config.gpg_homedir}')
+
+        # Since --sign= keys are passed directly on the CLI, make a separate
+        # copy of the options list with the key "censored", so that the command
+        # line can be safely printed.
+        safe_sign_opts = sign_opts[:]
+        if self.config.sign_keyfiles:
+            for opts in sign_opts, safe_sign_opts:
+                opts.append(f'--sign-type={self.config.sign_type}')
+            for keyfile in self.config.sign_keyfiles:
+                for i, key in enumerate(self._read_keyfile_keys(
+                                            keyfile,
+                                            from_config='sign_keyfiles'),
+                                        start=1):
+                    sign_opts.append(f'--sign={key}')
+                    safe_sign_opts.append(f'--sign=<key #{i} from {keyfile}>')
+
         if self._is_flatpak_repo():
-            cmd = (
-                ['flatpak', 'build-update-repo'] +
-                sign_opts +
-                [str(self.path)]
-            )
+            cmd_prefix = ['flatpak', 'build-update-repo', str(self.path)]
         else:
-            cmd = (
-                ['ostree', f'--repo={self.path}', 'summary', '--update'] +
-                sign_opts
-            )
-        logger.info('Updating repo metadata with %s', ' '.join(cmd))
-        subprocess.check_call(cmd)
+            cmd_prefix = ['ostree', f'--repo={self.path}', 'summary',
+                          '--update']
+        logger.info('Updating repo metadata with %s',
+                    ' '.join(cmd_prefix + safe_sign_opts))
+        subprocess.check_call(cmd_prefix + sign_opts)
 
     def update_repo_hook(self, refs):
         """Run the configured update_hook

@@ -23,6 +23,12 @@ PGP_KEY = os.path.join(DATADIR, 'pgp-key.asc')
 PGP_PUB = os.path.join(DATADIR, 'pgp-pub.asc')
 PGP_PUB_KEYRING = os.path.join(DATADIR, 'pgp-pub.gpg')
 PGP_KEY_ID = '281D0DDC6EDD77CF6A8A936C247D3E51CDA08B6B'
+ED25519_PUBLIC_KEY = \
+    'KDurJTccLAQ4AqtSAU8g7aPV25i6oEsy1TS6gh4LdlE='
+ED25519_PRIVATE_KEY = (
+    '2b19zVhdsWKxoUOGP8OTBwQGAGSshWJCpage7Ov+tUcoO6slNxwsBDgCq1IBTyDto9XbmLqgS'
+    'zLVNLqCHgt2UQ=='
+)
 
 
 class OTPushTestError(Exception):
@@ -54,7 +60,8 @@ needs_flatpak = pytest.mark.skipif(
 
 
 def random_commit(repo, tmpdir, refspec, parent=None, timestamp=None,
-                  extra_metadata=None, gpg_key_id=None, gpg_homedir=None):
+                  extra_metadata=None, gpg_key_id=None, gpg_homedir=None,
+                  ed25519_key=None):
     """Create a random commit and set refspec to it
 
     Returns the new commit checksum.
@@ -102,6 +109,10 @@ def random_commit(repo, tmpdir, refspec, parent=None, timestamp=None,
         # Sign the commit
         if gpg_key_id:
             repo.sign_commit(checksum, gpg_key_id, gpg_homedir)
+        if ed25519_key:
+            sign = get_ostree_ed25519_sign()
+            sign.set_sk(GLib.Variant('s', ed25519_key))
+            sign.commit(repo, checksum, None)
 
         # Set the ref
         if remote is None:
@@ -399,3 +410,23 @@ def kill_gpg_agent(gpg_homedir):
     )
     logger.debug('Killing GnuPG agent: %s', ' '.join(cmd))
     subprocess.run(cmd, check=True)
+
+
+def get_ostree_ed25519_sign():
+    """Retrieve an OSTree.Sign instance for ed25519 keys"""
+    return OSTree.Sign.get_by_name('ed25519')
+
+
+def have_ed25519_support():
+    """Check whether ostree was compiled with ed25519 signature support"""
+    try:
+        get_ostree_ed25519_sign()
+    except (AttributeError, GLib.GError):
+        return False
+
+    return True
+
+
+needs_ed25519 = pytest.mark.skipif(
+    not have_ed25519_support(), reason='ed25519 support required'
+)

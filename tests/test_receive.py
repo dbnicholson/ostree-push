@@ -13,12 +13,16 @@ import time
 import yaml
 
 from .util import (
+    ED25519_PRIVATE_KEY,
+    ED25519_PUBLIC_KEY,
     PGP_PUB,
     PGP_PUB_KEYRING,
     PGP_KEY_ID,
     TESTSDIR,
+    get_ostree_ed25519_sign,
     get_summary_variant,
     local_refs,
+    needs_ed25519,
     needs_flatpak,
     needs_gpg,
     needs_ostree,
@@ -366,6 +370,90 @@ class TestReceiveRepo:
         refs = local_refs(repo)
         assert refs.keys() == {'ref1'}
 
+    @needs_ed25519
+    def test_receive_ed25519_sign(self, tmp_files_path, tmp_path, receive_repo,
+                                  source_repo, ed25519_private_keyfile):
+        random_commit(source_repo, tmp_files_path, 'ref1')
+
+        # Specifying a missing keyfile should fail.
+        keyfile_path = str(tmp_path / 'missing')
+        receive_repo.config.sign_keyfiles = [keyfile_path]
+        with pytest.raises(receive.OTReceiveConfigError,
+                           match=f'sign_keyfiles keyfile "{keyfile_path}"'
+                                 + ' does not exist'):
+            receive_repo.receive(['ref1'])
+
+        # Specifying the key.
+        receive_repo.config.sign_keyfiles = [ed25519_private_keyfile]
+        merged = receive_repo.receive(['ref1'])
+        assert merged == {'ref1'}
+        refs = local_refs(receive_repo)
+        assert refs.keys() == {'ref1'}
+
+        # Validate the signature and make sure it was signed by the correct
+        # key.
+        sign = get_ostree_ed25519_sign()
+        sign.set_pk(GLib.Variant('s', ED25519_PUBLIC_KEY))
+        commit = refs['ref1']
+        assert sign.commit_verify(receive_repo, commit)
+
+    @needs_ed25519
+    def test_receive_ed25519_verify(self, tmp_path, tmp_files_path, dest_repo,
+                                    source_repo, source_server,
+                                    ed25519_public_keyfile, monkeypatch):
+        # Specifying a missing keyfile should fail.
+        keyfile_path = str(tmp_path / 'missing')
+        config = receive.OTReceiveConfig(sign_verify=True,
+                                         sign_trustedkeyfile=keyfile_path,
+                                         update=False)
+        repo_path = str(dest_repo.path)
+        with pytest.raises(receive.OTReceiveConfigError,
+                           match='sign_trustedkeyfile keyfile'
+                                 + f' "{keyfile_path}" does not'
+                                 + ' exist') as excinfo:
+            receive.OTReceiveRepo(repo_path, source_server.url, config)
+
+        # Receiving an unsigned commit should fail.
+        random_commit(source_repo, tmp_files_path, 'ref1')
+        config = receive.OTReceiveConfig(
+            sign_verify=True,
+            sign_trustedkeyfile=ed25519_public_keyfile,
+            update=False)
+        repo = receive.OTReceiveRepo(repo_path, source_server.url, config)
+        with pytest.raises(GLib.Error, match="Can't verify commit") as excinfo:
+            repo.receive(['ref1'])
+        assert excinfo.value.matches(Gio.io_error_quark(),
+                                     Gio.IOErrorEnum.FAILED)
+
+        # Receiving a signed commit should succeed.
+        random_commit(source_repo, tmp_files_path, 'ref1',
+                      ed25519_key=ED25519_PRIVATE_KEY)
+        config = receive.OTReceiveConfig(
+            sign_verify=True,
+            sign_trustedkeyfile=ed25519_public_keyfile,
+            update=False)
+        repo = receive.OTReceiveRepo(repo_path, source_server.url, config)
+        wipe_repo(repo)
+        merged = repo.receive(['ref1'])
+        assert merged == {'ref1'}
+        refs = local_refs(repo)
+        assert refs.keys() == {'ref1'}
+
+        # Using the user's default keyfile.
+        random_commit(source_repo, tmp_files_path, 'ref1',
+                      ed25519_key=ED25519_PRIVATE_KEY)
+        monkeypatch.setenv('XDG_CONFIG_HOME', str(tmp_path))
+        keyring = tmp_path / 'ostree/ostree-receive-trustedkeyfile.ed25519'
+        keyring.parent.mkdir(exist_ok=True)
+        keyring.symlink_to(ed25519_public_keyfile)
+        config = receive.OTReceiveConfig(sign_verify=True, update=False)
+        repo = receive.OTReceiveRepo(repo_path, source_server.url, config)
+        wipe_repo(repo)
+        merged = repo.receive(['ref1'])
+        assert merged == {'ref1'}
+        refs = local_refs(repo)
+        assert refs.keys() == {'ref1'}
+
     @needs_ostree
     def test_update_repo_metadata(self, tmp_files_path, receive_repo):
         summary = Path(receive_repo.path) / 'summary'
@@ -414,6 +502,18 @@ class TestReceiveRepo:
     def test_update_repo_metadata_gpg_sign(self, receive_repo, gpg_homedir):
         receive_repo.config.gpg_sign = [PGP_KEY_ID]
         receive_repo.config.gpg_homedir = str(gpg_homedir)
+        receive_repo.update_repo_metadata()
+
+        summary = Path(receive_repo.path) / 'summary'
+        summary_sig = summary.with_suffix('.sig')
+        assert summary.exists()
+        assert summary_sig.exists()
+
+    @needs_ed25519
+    @needs_ostree
+    def test_update_repo_metadata_ed25519_sign(self, receive_repo,
+                                               ed25519_private_keyfile):
+        receive_repo.config.sign_keyfiles = [ed25519_private_keyfile]
         receive_repo.update_repo_metadata()
 
         summary = Path(receive_repo.path) / 'summary'
@@ -576,6 +676,10 @@ class TestConfig:
             'gpg_homedir': None,
             'gpg_verify': False,
             'gpg_trustedkeys': None,
+            'sign_type': 'ed25519',
+            'sign_keyfiles': [],
+            'sign_verify': False,
+            'sign_trustedkeyfile': None,
             'update': True,
             'update_hook': None,
             'log_level': 'INFO',
@@ -621,6 +725,13 @@ class TestConfig:
             'gpg_homedir': str(tmp_path / 'gnupg'),
             'gpg_verify': True,
             'gpg_trustedkeys': str(tmp_path / 'trustedkeys.gpg'),
+            'sign_type': 'ed25519',
+            'sign_keyfiles': [
+                str(tmp_path / 'signkey1'),
+                str(tmp_path / 'signkey2'),
+            ],
+            'sign_verify': True,
+            'sign_trustedkeyfile': str(tmp_path / 'trustedkey'),
             'update': False,
             'update_hook': '/foo/bar baz',
             'log_level': 'DEBUG',
@@ -759,6 +870,10 @@ class TestConfig:
             'gpg_homedir': None,
             'gpg_verify': False,
             'gpg_trustedkeys': None,
+            'sign_type': 'ed25519',
+            'sign_keyfiles': [],
+            'sign_verify': False,
+            'sign_trustedkeyfile': None,
             'update': True,
             'update_hook': None,
             'log_level': 'WARNING',
