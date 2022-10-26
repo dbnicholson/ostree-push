@@ -5,14 +5,3 @@
   repo should be locked while the push is happening. In practice this
   shouldn't be an issue since you're unlikely to be making commits into
   a shared repo.
-
-* Neither the pulled commits nor the repo metadata created by
-  `ostree-receive` are signed. A config file should be supported with
-  the GPG signing details.
-
-* The `ostree-receive` repo metadata update process is currently limited
-  to running either `ostree summary -u` or `flatpak build-update-repo`.
-  Probably it should be possible to define a hook path in configuration
-  that will be run to update the repo metadata (and maybe do other
-  things like create static deltas or purge a CDN) when there are
-  updates.
