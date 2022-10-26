@@ -1,0 +1,21 @@
+# 1.0.0 (2022-06-30)
+
+ostree-receive now supports GPG verification of received commits. It now
+supports all the features I need from it, so let's call it 1.0.0!
+
+# 0.1.1 (2022-04-06)
+
+* An alternate repository root can be configured for ostree-receive.
+* ostree-receive now supports GPG signing of commits and repo metadata.
+* A repo update hook can now be configured to customize the post-commit
+  process in ostree-receive.
+
+# 0.1.0 (2022-03-04)
+
+ostree-receive now reads configuration files for options. See the
+example ostree-receive.conf for details on the supported options.
+
+# 0.0.1 (2021-05-27)
+
+This is a rewrite of ostree-push and ostree-receive roughly as we've
+been using it in Endless for several years.

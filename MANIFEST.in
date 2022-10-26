@@ -1,3 +1,4 @@
+include NEWS
 include TODO
 include ostree-receive.conf
 include .flake8
