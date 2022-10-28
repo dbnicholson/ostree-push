@@ -1,3 +1,9 @@
+# 1.0.1 (2022-10-27)
+
+ostree-receive now supports ostree ed25519 signing and verification. See
+the example ostree-receive.conf for details on the configuration. Thanks
+to Ryan Gonzalez for the contribution!
+
 # 1.0.0 (2022-06-30)
 
 ostree-receive now supports GPG verification of received commits. It now
