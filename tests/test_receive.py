@@ -52,6 +52,14 @@ class TestReceiveRepo:
             assert remotes_dir.exists()
         assert not remotes_dir.exists()
 
+    def test_missing_repo(self, tmp_path):
+        repo_path = tmp_path / 'repo'
+        url = 'http://example.com'
+        config = receive.OTReceiveRepoConfig(repo_path, url)
+        with pytest.raises(receive.OTReceiveError) as excinfo:
+            receive.OTReceiveRepo(config)
+        assert str(excinfo.value) == f'repo {repo_path} not found'
+
     def test_get_commit_timestamp(self, tmp_files_path, receive_repo):
         with pytest.raises(GLib.Error) as excinfo:
             receive_repo._get_commit_timestamp('missing')
@@ -984,6 +992,12 @@ class TestConfig:
         rel_nonroot_repo = Path('repo')
         nonroot_repo = rel_nonroot_repo.resolve()
         nonroot_repo.mkdir()
+
+        # Non-existent repo should raise an exception.
+        repo_path = tmp_path / 'nonexistent'
+        with pytest.raises(receive.OTReceiveError) as excinfo:
+            config.get_repo_config(repo_path, url)
+        assert str(excinfo.value) == f'repo {repo_path} not found'
 
         # Without root setup, the path should be passed back as is.
         repo_config = config.get_repo_config(str(rel_nonroot_repo), url)

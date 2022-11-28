@@ -257,6 +257,10 @@ class OTReceiveConfig:
             except ValueError:
                 raise OTReceiveError(f'repo {path} not found') from None
 
+        # Ensure the repository exists.
+        if not repo_path.exists():
+            raise OTReceiveError(f'repo {path} not found')
+
         # Copy all the common fields from the global receive config.
         repo_config_fields = {
             field.name for field in dataclasses.fields(OTReceiveRepoConfig)
@@ -297,6 +301,10 @@ class OTReceiveRepo(OSTree.Repo):
             raise OTReceiveError(
                 'config is not an OTReceiveRepoConfig instance'
             )
+
+        # Ensure the repository exists.
+        if not self.path.exists():
+            raise OTReceiveError(f'repo {self.path} not found')
 
         logger.debug('Using repo path %s', self.path)
 
