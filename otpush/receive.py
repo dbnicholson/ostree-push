@@ -128,6 +128,11 @@ class OTReceiveConfig:
       to the absolute path of the OSTree repository and the environment
       variable OSTREE_RECEIVE_REFS set to the set of refs received separated
       by whitespace.
+    repos: Optional per-repository configuration settings. All of the above
+      settings except for root can be set and will override the global value.
+      The value is a map of repository path to map of settings. The repository
+      path can be relative or absolute. If root is specified, relative paths
+      are resolved below it.
     log_level: Set the log level. See the logging module for available levels.
     force: Force receiving commits even if nothing changed or the remote
       commits are not newer than the current commits.
@@ -145,6 +150,7 @@ class OTReceiveConfig:
     sign_trustedkeyfile: str = None
     update: bool = True
     update_hook: str = None
+    repos: dict = dataclasses.field(default_factory=dict)
     log_level: str = 'INFO'
     force: bool = False
     dry_run: bool = False
@@ -261,7 +267,25 @@ class OTReceiveConfig:
         if not repo_path.exists():
             raise OTReceiveError(f'repo {path} not found')
 
-        # Copy all the common fields from the global receive config.
+        # See if there's a matching path in repos.
+        for key, values in self.repos.items():
+            config_path = Path(key)
+            if repo_root and not config_path.is_absolute():
+                config_path = repo_root.joinpath(config_path)
+            try:
+                matches = repo_path.samefile(config_path)
+            except FileNotFoundError:
+                matches = False
+
+            if matches:
+                logger.debug(f'Applying repos {key} configuration')
+                per_repo_config = values
+                break
+        else:
+            per_repo_config = {}
+
+        # Copy all but path and url from the per-repo or the global
+        # receive config.
         repo_config_fields = {
             field.name for field in dataclasses.fields(OTReceiveRepoConfig)
         }
@@ -270,7 +294,8 @@ class OTReceiveConfig:
         }
         common_fields = repo_config_fields & receive_config_fields
         repo_config_args = {
-            field: getattr(self, field) for field in common_fields
+            field: per_repo_config.get(field, getattr(self, field))
+            for field in common_fields
         }
         repo_config_args['path'] = repo_path
         repo_config_args['url'] = url

@@ -699,6 +699,16 @@ class TestReceiver:
         dest_refs = local_refs(dest_repo)
         assert dest_refs.keys() == {'ref1'}
 
+        # Test that repos override is applied.
+        summary_path = dest_repo.path / 'summary'
+        assert not summary_path.exists()
+        assert not receiver.config.update
+        receiver.config.repos = {str(dest_repo.path): {'update': True}}
+        random_commit(source_repo, tmp_files_path, 'ref2')
+        merged = receiver.receive(dest_repo.path, source_server.url, ['ref2'])
+        assert merged == {'ref2'}
+        assert summary_path.exists()
+
 
 class TestRepoConfig:
     """Tests for OTReceiveRepoConfig"""
@@ -744,6 +754,7 @@ class TestConfig:
             'sign_trustedkeyfile': None,
             'update': True,
             'update_hook': None,
+            'repos': {},
             'log_level': 'INFO',
             'force': False,
             'dry_run': False,
@@ -796,6 +807,14 @@ class TestConfig:
             'sign_trustedkeyfile': str(tmp_path / 'trustedkey'),
             'update': False,
             'update_hook': '/foo/bar baz',
+            'repos': {
+                'foo': {
+                    'gpg_sign': ['76543210'],
+                },
+                'bar': {
+                    'gpg_verify': False,
+                },
+            },
             'log_level': 'DEBUG',
             'force': True,
             'dry_run': True,
@@ -938,6 +957,7 @@ class TestConfig:
             'sign_trustedkeyfile': None,
             'update': True,
             'update_hook': None,
+            'repos': {},
             'log_level': 'WARNING',
             'force': False,
             'dry_run': False,
@@ -1015,7 +1035,7 @@ class TestConfig:
             config.get_repo_config(nonroot_repo, url)
         assert str(excinfo.value) == f'repo {nonroot_repo} not found'
 
-        # All combinations of root and repo path.
+        # All combinations of root, repo path, and config override path.
         base_expected_config = {
             'path': nonroot_repo,
             'url': url,
@@ -1030,30 +1050,65 @@ class TestConfig:
             'update': config.update,
             'update_hook': config.update_hook,
         }
-        for root_path, repo_path, expected_repo_path in (
-            # Absolute repo path with no root.
-            (None, nonroot_repo, nonroot_repo),
-            # Relative repo path with no root.
-            (None, rel_nonroot_repo, rel_nonroot_repo),
-            # Absolute repo path with absolute root.
-            (root, root_repo, root_repo),
-            # Relative repo path with absolute root.
-            (root, rel_root_repo, root_repo),
-            # Absolute repo path with relative root.
-            (rel_root, root_repo, root_repo),
-            # Relative repo path with relative root.
-            (rel_root, rel_root_repo, root_repo),
+        for root_path, repo_path, override_path, expected_repo_path in (
+            # Absolute repo path with no root and no override.
+            (None, nonroot_repo, None, nonroot_repo),
+            # Relative repo path with no root and no override.
+            (None, rel_nonroot_repo, None, rel_nonroot_repo),
+            # Absolute repo path with absolute root and no override.
+            (root, root_repo, None, root_repo),
+            # Relative repo path with absolute root and no override.
+            (root, rel_root_repo, None, root_repo),
+            # Absolute repo path with relative root and no override.
+            (rel_root, root_repo, None, root_repo),
+            # Relative repo path with relative root and no override.
+            (rel_root, rel_root_repo, None, root_repo),
+
+            # Absolute repo path with no root and absolute override.
+            (None, nonroot_repo, nonroot_repo, nonroot_repo),
+            # Relative repo path with no root and absolute override.
+            (None, rel_nonroot_repo, nonroot_repo, rel_nonroot_repo),
+            # Absolute repo path with absolute root and absolute override.
+            (root, root_repo, root_repo, root_repo),
+            # Relative repo path with absolute root and absolute override.
+            (root, rel_root_repo, root_repo, root_repo),
+            # Absolute repo path with relative root and absolute override.
+            (rel_root, root_repo, root_repo, root_repo),
+            # Relative repo path with relative root and absolute override.
+            (rel_root, rel_root_repo, root_repo, root_repo),
+
+            # Absolute repo path with no root and relative override.
+            (None, nonroot_repo, rel_nonroot_repo, nonroot_repo),
+            # Relative repo path with no root and relative override.
+            (None, rel_nonroot_repo, rel_nonroot_repo, rel_nonroot_repo),
+            # Absolute repo path with absolute root and relative override.
+            (root, root_repo, rel_root_repo, root_repo),
+            # Relative repo path with absolute root and relative override.
+            (root, rel_root_repo, rel_root_repo, root_repo),
+            # Absolute repo path with relative root and relative override.
+            (rel_root, root_repo, rel_root_repo, root_repo),
+            # Relative repo path with relative root and relative override.
+            (rel_root, rel_root_repo, rel_root_repo, root_repo),
         ):
             logger.debug(
-                f'Testing {root_path=}, {repo_path=}, {expected_repo_path=}',
+                f'Testing {root_path=}, {repo_path=}, {override_path=}, '
+                f'{expected_repo_path=}',
             )
 
             expected_config = base_expected_config.copy()
             expected_config['path'] = expected_repo_path
             config.root = str(root_path) if root_path else None
+            if override_path:
+                config.repos = {str(override_path): {'update': False}}
+                expected_config['update'] = False
+            else:
+                config.repos = {}
+                expected_config['update'] = True
 
             repo_config = config.get_repo_config(repo_path, url)
             assert dataclasses.asdict(repo_config) == expected_config
+            if override_path:
+                assert repo_config.update != config.update
 
 
 class TestArgParser:
