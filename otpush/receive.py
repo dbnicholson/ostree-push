@@ -70,8 +70,29 @@ class OTReceiveConfigError(OTReceiveError):
 
 
 @dataclasses.dataclass
-class OTReceiveConfig:
+class OTReceiveRepoConfig:
     """OTReceiveRepo configuration
+
+    The path and url fields are required. See the OTReceiveConfig class for
+    details on the remaining optional fields.
+    """
+    path: Path
+    url: str
+    gpg_sign: list = dataclasses.field(default_factory=list)
+    gpg_homedir: str = None
+    gpg_verify: bool = False
+    gpg_trustedkeys: str = None
+    sign_type: str = 'ed25519'
+    sign_keyfiles: list = dataclasses.field(default_factory=list)
+    sign_verify: bool = False
+    sign_trustedkeyfile: str = None
+    update: bool = True
+    update_hook: str = None
+
+
+@dataclasses.dataclass
+class OTReceiveConfig:
+    """OTReceive configuration
 
     Configuration can be provided from a file or command line arguments using
     the load method. Config files are YAML mappings with the option names
@@ -217,8 +238,47 @@ class OTReceiveConfig:
             config_home / 'ostree/ostree-receive.conf',
         ]
 
+    def get_repo_config(self, path, url):
+        """Get OTReceiveRepoConfig instance for repo path and URL"""
+        repo_path = Path(path)
+        repo_root = (
+            Path(self.root).resolve() if self.root else None
+        )
+
+        if repo_root:
+            if not repo_path.is_absolute():
+                # Join the relative path to the root.
+                repo_path = repo_root.joinpath(repo_path)
+
+            # Make sure the path is below the root.
+            repo_path = repo_path.resolve()
+            try:
+                repo_path.relative_to(repo_root)
+            except ValueError:
+                raise OTReceiveError(f'repo {path} not found') from None
+
+        # Copy all the common fields from the global receive config.
+        repo_config_fields = {
+            field.name for field in dataclasses.fields(OTReceiveRepoConfig)
+        }
+        receive_config_fields = {
+            field.name for field in dataclasses.fields(self)
+        }
+        common_fields = repo_config_fields & receive_config_fields
+        repo_config_args = {
+            field: getattr(self, field) for field in common_fields
+        }
+        repo_config_args['path'] = repo_path
+        repo_config_args['url'] = url
+
+        return OTReceiveRepoConfig(**repo_config_args)
+
 
 class OTReceiveRepo(OSTree.Repo):
+    """OSTree repository receiving pushed commits
+
+    An OTReceiveRepoConfig instance is required.
+    """
     # The fake remote name
     REMOTE_NAME = '_receive'
 
@@ -229,32 +289,14 @@ class OTReceiveRepo(OSTree.Repo):
         OSTree.REPO_METADATA_REF,
     )
 
-    def __init__(self, path, url, config=None):
-        self.path = Path(path)
-        self.url = url
+    def __init__(self, config):
+        self.config = config
         self.remotes_dir = None
 
-        if config:
-            if not isinstance(config, OTReceiveConfig):
-                raise OTReceiveError(
-                    'config is not an OTReceiveConfig instance'
-                )
-            self.config = config
-        else:
-            self.config = OTReceiveConfig()
-
-        if self.config.root:
-            repo_root = Path(self.config.root).resolve()
-            if not self.path.is_absolute():
-                # Join the relative path to the root.
-                self.path = repo_root.joinpath(self.path)
-
-            # Make sure the path is below the root.
-            self.path = self.path.resolve()
-            try:
-                self.path.relative_to(repo_root)
-            except ValueError:
-                raise OTReceiveError(f'repo {path} not found') from None
+        if not isinstance(self.config, OTReceiveRepoConfig):
+            raise OTReceiveError(
+                'config is not an OTReceiveRepoConfig instance'
+            )
 
         logger.debug('Using repo path %s', self.path)
 
@@ -291,6 +333,14 @@ class OTReceiveRepo(OSTree.Repo):
         super().__init__(path=repo_file,
                          remotes_config_dir=self.remotes_dir.name)
         self.open()
+
+    @property
+    def path(self):
+        return self.config.path
+
+    @property
+    def url(self):
+        return self.config.url
 
     def __enter__(self):
         return self
@@ -533,10 +583,18 @@ class OTReceiveRepo(OSTree.Repo):
                     safe_sign_opts.append(f'--sign=<key #{i} from {keyfile}>')
 
         if self._is_flatpak_repo():
-            cmd_prefix = ['flatpak', 'build-update-repo', str(self.path)]
+            cmd_prefix = [
+                'flatpak',
+                'build-update-repo',
+                str(self.path),
+            ]
         else:
-            cmd_prefix = ['ostree', f'--repo={self.path}', 'summary',
-                          '--update']
+            cmd_prefix = [
+                'ostree',
+                f'--repo={self.path}',
+                'summary',
+                '--update',
+            ]
         logger.info('Updating repo metadata with %s',
                     ' '.join(cmd_prefix + safe_sign_opts))
         subprocess.check_call(cmd_prefix + sign_opts)
@@ -562,7 +620,7 @@ class OTReceiveRepo(OSTree.Repo):
         logger.debug('OSTREE_RECEIVE_REFS=%s', env['OSTREE_RECEIVE_REFS'])
         subprocess.check_call(cmd, env=env)
 
-    def receive(self, refs):
+    def receive(self, refs, force=False, dry_run=False):
         # See what revisions we're pulling.
         _, remote_refs = self.remote_list_refs(self.REMOTE_NAME)
         if len(refs) == 0:
@@ -596,7 +654,7 @@ class OTReceiveRepo(OSTree.Repo):
                 raise OTReceiveError(
                     f'Could not find ref {ref} in summary file')
 
-            if self.config.force or remote_rev != current_rev:
+            if force or remote_rev != current_rev:
                 logger.debug('Pulling %s', ref)
                 refs_to_pull[ref] = remote_rev
 
@@ -644,7 +702,7 @@ class OTReceiveRepo(OSTree.Repo):
                                 'ref %s remote commit %s root equals %s',
                                 ref, remote_rev, current_rev
                             )
-                        if self.config.force:
+                        if force:
                             logger.info('Forcing merge of ref %s', ref)
                             refs_to_merge[ref] = remote_rev
 
@@ -654,7 +712,7 @@ class OTReceiveRepo(OSTree.Repo):
                 return set()
 
             # For a dry run, exit now before creating the refs
-            if self.config.dry_run:
+            if dry_run:
                 self.abort_transaction()
                 return refs_to_merge.keys()
 
@@ -678,6 +736,30 @@ class OTReceiveRepo(OSTree.Repo):
                 self.update_repo_metadata()
 
         return refs_to_merge.keys()
+
+
+class OTReceiver:
+    """Pushed commit receiver
+
+    An OTReceiveConfig instance can be provided to configure the receiver.
+    """
+    def __init__(self, config=None):
+        self.config = config or OTReceiveConfig()
+
+        if not isinstance(self.config, OTReceiveConfig):
+            raise OTReceiveError(
+                'config is not an OTReceiveConfig instance'
+            )
+
+    def receive(self, path, url, refs):
+        """Receive pushed commits
+
+        Creates an OTReceiveRepo at path and receives commits on refs
+        from url.
+        """
+        repo_config = self.config.get_repo_config(path, url)
+        with OTReceiveRepo(repo_config) as repo:
+            return repo.receive(refs, self.config.force, self.config.dry_run)
 
 
 class OTReceiveArgParser(ArgumentParser):
@@ -725,8 +807,8 @@ def main():
 
     logging.basicConfig(level=config.log_level)
 
-    with OTReceiveRepo(args.repo, args.url, config) as repo:
-        repo.receive(args.refs)
+    receiver = OTReceiver(config)
+    receiver.receive(args.repo, args.url, args.refs)
 
 
 if __name__ == '__main__':

@@ -29,7 +29,6 @@ from .util import (
     oneshot_transaction,
     random_commit,
     wipe_repo,
-    TmpRepo,
 )
 
 gi.require_version('OSTree', '1.0')
@@ -41,13 +40,14 @@ logger = logging.getLogger(__name__)
 class TestReceiveRepo:
     def test_cleanup(self, dest_repo):
         url = 'http://example.com'
-        repo = receive.OTReceiveRepo(dest_repo.path, url)
+        config = receive.OTReceiveRepoConfig(dest_repo.path, url)
+        repo = receive.OTReceiveRepo(config)
         remotes_dir = Path(repo.remotes_dir.name)
         assert remotes_dir.exists()
         del repo
         assert not remotes_dir.exists()
 
-        with receive.OTReceiveRepo(dest_repo.path, url) as repo:
+        with receive.OTReceiveRepo(config) as repo:
             remotes_dir = Path(repo.remotes_dir.name)
             assert remotes_dir.exists()
         assert not remotes_dir.exists()
@@ -307,22 +307,29 @@ class TestReceiveRepo:
                                 monkeypatch):
         # Specifying a missing GPG keyring should fail
         keyring_path = str(tmp_path / 'missing.gpg')
-        config = receive.OTReceiveConfig(gpg_verify=True,
-                                         gpg_trustedkeys=keyring_path,
-                                         update=False)
-        repo_path = str(dest_repo.path)
+        config = receive.OTReceiveRepoConfig(
+            dest_repo.path,
+            source_server.url,
+            gpg_verify=True,
+            gpg_trustedkeys=keyring_path,
+            update=False,
+        )
         with pytest.raises(receive.OTReceiveConfigError) as excinfo:
-            receive.OTReceiveRepo(repo_path, source_server.url, config)
+            receive.OTReceiveRepo(config)
         assert str(excinfo.value) == (
             f'gpg_trustedkeys keyring "{keyring_path}" does not exist'
         )
 
         # Receiving an unsigned commit should fail.
         random_commit(source_repo, tmp_files_path, 'ref1')
-        config = receive.OTReceiveConfig(gpg_verify=True,
-                                         gpg_trustedkeys=str(PGP_PUB_KEYRING),
-                                         update=False)
-        repo = receive.OTReceiveRepo(repo_path, source_server.url, config)
+        config = receive.OTReceiveRepoConfig(
+            dest_repo.path,
+            source_server.url,
+            gpg_verify=True,
+            gpg_trustedkeys=str(PGP_PUB_KEYRING),
+            update=False,
+        )
+        repo = receive.OTReceiveRepo(config)
         with pytest.raises(GLib.Error) as excinfo:
             repo.receive(['ref1'])
         assert excinfo.value.matches(OSTree.gpg_error_quark(),
@@ -331,10 +338,14 @@ class TestReceiveRepo:
         # Receiving a signed commit should succeed.
         random_commit(source_repo, tmp_files_path, 'ref1',
                       gpg_key_id=PGP_KEY_ID, gpg_homedir=str(gpg_homedir))
-        config = receive.OTReceiveConfig(gpg_verify=True,
-                                         gpg_trustedkeys=str(PGP_PUB_KEYRING),
-                                         update=False)
-        repo = receive.OTReceiveRepo(repo_path, source_server.url, config)
+        config = receive.OTReceiveRepoConfig(
+            dest_repo.path,
+            source_server.url,
+            gpg_verify=True,
+            gpg_trustedkeys=str(PGP_PUB_KEYRING),
+            update=False,
+        )
+        repo = receive.OTReceiveRepo(config)
         wipe_repo(repo)
         merged = repo.receive(['ref1'])
         assert merged == {'ref1'}
@@ -345,10 +356,14 @@ class TestReceiveRepo:
         # also work.
         random_commit(source_repo, tmp_files_path, 'ref1',
                       gpg_key_id=PGP_KEY_ID, gpg_homedir=str(gpg_homedir))
-        config = receive.OTReceiveConfig(gpg_verify=True,
-                                         gpg_trustedkeys=str(PGP_PUB),
-                                         update=False)
-        repo = receive.OTReceiveRepo(repo_path, source_server.url, config)
+        config = receive.OTReceiveRepoConfig(
+            dest_repo.path,
+            source_server.url,
+            gpg_verify=True,
+            gpg_trustedkeys=str(PGP_PUB),
+            update=False,
+        )
+        repo = receive.OTReceiveRepo(config)
         wipe_repo(repo)
         merged = repo.receive(['ref1'])
         assert merged == {'ref1'}
@@ -362,8 +377,13 @@ class TestReceiveRepo:
         keyring = tmp_path / 'ostree/ostree-receive-trustedkeys.gpg'
         keyring.parent.mkdir(exist_ok=True)
         keyring.symlink_to(PGP_PUB_KEYRING)
-        config = receive.OTReceiveConfig(gpg_verify=True, update=False)
-        repo = receive.OTReceiveRepo(repo_path, source_server.url, config)
+        config = receive.OTReceiveRepoConfig(
+            dest_repo.path,
+            source_server.url,
+            gpg_verify=True,
+            update=False,
+        )
+        repo = receive.OTReceiveRepo(config)
         wipe_repo(repo)
         merged = repo.receive(['ref1'])
         assert merged == {'ref1'}
@@ -403,23 +423,29 @@ class TestReceiveRepo:
                                     ed25519_public_keyfile, monkeypatch):
         # Specifying a missing keyfile should fail.
         keyfile_path = str(tmp_path / 'missing')
-        config = receive.OTReceiveConfig(sign_verify=True,
-                                         sign_trustedkeyfile=keyfile_path,
-                                         update=False)
-        repo_path = str(dest_repo.path)
+        config = receive.OTReceiveRepoConfig(
+            dest_repo.path,
+            source_server.url,
+            sign_verify=True,
+            sign_trustedkeyfile=keyfile_path,
+            update=False,
+        )
         with pytest.raises(receive.OTReceiveConfigError,
                            match='sign_trustedkeyfile keyfile'
                                  + f' "{keyfile_path}" does not'
                                  + ' exist') as excinfo:
-            receive.OTReceiveRepo(repo_path, source_server.url, config)
+            receive.OTReceiveRepo(config)
 
         # Receiving an unsigned commit should fail.
         random_commit(source_repo, tmp_files_path, 'ref1')
-        config = receive.OTReceiveConfig(
+        config = receive.OTReceiveRepoConfig(
+            dest_repo.path,
+            source_server.url,
             sign_verify=True,
             sign_trustedkeyfile=ed25519_public_keyfile,
-            update=False)
-        repo = receive.OTReceiveRepo(repo_path, source_server.url, config)
+            update=False,
+        )
+        repo = receive.OTReceiveRepo(config)
         with pytest.raises(GLib.Error, match="Can't verify commit") as excinfo:
             repo.receive(['ref1'])
         assert excinfo.value.matches(Gio.io_error_quark(),
@@ -428,11 +454,14 @@ class TestReceiveRepo:
         # Receiving a signed commit should succeed.
         random_commit(source_repo, tmp_files_path, 'ref1',
                       ed25519_key=ED25519_PRIVATE_KEY)
-        config = receive.OTReceiveConfig(
+        config = receive.OTReceiveRepoConfig(
+            dest_repo.path,
+            source_server.url,
             sign_verify=True,
             sign_trustedkeyfile=ed25519_public_keyfile,
-            update=False)
-        repo = receive.OTReceiveRepo(repo_path, source_server.url, config)
+            update=False,
+        )
+        repo = receive.OTReceiveRepo(config)
         wipe_repo(repo)
         merged = repo.receive(['ref1'])
         assert merged == {'ref1'}
@@ -446,8 +475,13 @@ class TestReceiveRepo:
         keyring = tmp_path / 'ostree/ostree-receive-trustedkeyfile.ed25519'
         keyring.parent.mkdir(exist_ok=True)
         keyring.symlink_to(ed25519_public_keyfile)
-        config = receive.OTReceiveConfig(sign_verify=True, update=False)
-        repo = receive.OTReceiveRepo(repo_path, source_server.url, config)
+        config = receive.OTReceiveRepoConfig(
+            dest_repo.path,
+            source_server.url,
+            sign_verify=True,
+            update=False,
+        )
+        repo = receive.OTReceiveRepo(config)
         wipe_repo(repo)
         merged = repo.receive(['ref1'])
         assert merged == {'ref1'}
@@ -634,36 +668,56 @@ class TestReceiveRepo:
         refs = local_refs(receive_repo)
         assert refs.keys() == {'ref1', 'ref2'}
 
-    def test_root(self, tmp_path, tmp_files_path, source_server):
-        url = source_server.url
-        root = tmp_path / 'pub/repos'
-        root.mkdir(parents=True)
-        config = receive.OTReceiveConfig(root=str(root), update=False)
-        root_tmp_repo = TmpRepo(root / 'root-dest')
-        non_root_tmp_repo = TmpRepo(tmp_path / 'non-root-dest')
 
-        # Requesting a repo outside the root should fail
-        repo_path = non_root_tmp_repo.path
-        logger.debug('Repo path %s', repo_path)
-        with pytest.raises(receive.OTReceiveError) as excinfo:
-            receive.OTReceiveRepo(str(repo_path), url, config)
-        assert str(excinfo.value) == (
-            f'repo {non_root_tmp_repo.path} not found'
-        )
+class TestReceiver:
+    """Tests for OTReceiver class"""
+    def test_default_config(self):
+        receiver = receive.OTReceiver()
+        assert receiver.config == receive.OTReceiveConfig()
 
-        # Absolute path under the root should work
-        repo_path = root_tmp_repo.path.resolve()
-        assert repo_path.is_absolute()
-        logger.debug('Repo path %s', repo_path)
-        with receive.OTReceiveRepo(str(repo_path), url, config):
-            pass
+    def test_receive(self, receiver, tmp_files_path, source_repo, dest_repo,
+                     source_server):
+        random_commit(source_repo, tmp_files_path, 'ref1')
+        source_refs = local_refs(source_repo)
+        assert source_refs.keys() == {'ref1'}
 
-        # Relative path under the root should work
-        repo_path = root_tmp_repo.path.relative_to(root)
-        assert not repo_path.is_absolute()
-        logger.debug('Repo path %s', repo_path)
-        with receive.OTReceiveRepo(str(repo_path), url, config):
-            pass
+        merged = receiver.receive(dest_repo.path, source_server.url, ['ref1'])
+        assert merged == {'ref1'}
+        dest_refs = local_refs(dest_repo)
+        assert dest_refs.keys() == {'ref1'}
+
+        merged = receiver.receive(dest_repo.path, source_server.url, ['ref1'])
+        assert merged == set()
+        dest_refs = local_refs(dest_repo)
+        assert dest_refs.keys() == {'ref1'}
+
+
+class TestRepoConfig:
+    """Tests for OTReceiveRepoConfig"""
+    def test_defaults(self):
+        config = receive.OTReceiveRepoConfig(Path('foo'), 'http://bar')
+        assert dataclasses.asdict(config) == {
+            'path': Path('foo'),
+            'url': 'http://bar',
+            'gpg_sign': [],
+            'gpg_homedir': None,
+            'gpg_verify': False,
+            'gpg_trustedkeys': None,
+            'sign_type': 'ed25519',
+            'sign_keyfiles': [],
+            'sign_verify': False,
+            'sign_trustedkeyfile': None,
+            'update': True,
+            'update_hook': None,
+        }
+
+    def test_required(self):
+        with pytest.raises(TypeError):
+            receive.OTReceiveRepoConfig()
+        with pytest.raises(TypeError):
+            receive.OTReceiveRepoConfig(path=Path('foo'))
+        with pytest.raises(TypeError):
+            receive.OTReceiveRepoConfig(url='http://bar')
 
 
 class TestConfig:
@@ -916,6 +970,76 @@ class TestConfig:
 
         config = receive.OTReceiveConfig.load(paths=[path], args=args)
         assert config.log_level == 'WARNING'
+
+    def test_repo_config(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        config = receive.OTReceiveConfig()
+        url = 'http://example.com'
+        rel_root = Path('root')
+        root = rel_root.resolve()
+        root.mkdir()
+        root_repo = root / 'repo'
+        rel_root_repo = root_repo.relative_to(root)
+        root_repo.mkdir()
+        rel_nonroot_repo = Path('repo')
+        nonroot_repo = rel_nonroot_repo.resolve()
+        nonroot_repo.mkdir()
+
+        # Without root setup, the path should be passed back as is.
+        repo_config = config.get_repo_config(str(rel_nonroot_repo), url)
+        assert repo_config.path == rel_nonroot_repo
+        repo_config = config.get_repo_config(rel_nonroot_repo, url)
+        assert repo_config.path == rel_nonroot_repo
+        repo_config = config.get_repo_config(str(nonroot_repo), url)
+        assert repo_config.path == nonroot_repo
+        repo_config = config.get_repo_config(nonroot_repo, url)
+        assert repo_config.path == nonroot_repo
+
+        # Requesting a repo outside the root should fail.
+        config.root = str(root)
+        with pytest.raises(receive.OTReceiveError) as excinfo:
+            config.get_repo_config(nonroot_repo, url)
+        assert str(excinfo.value) == f'repo {nonroot_repo} not found'
+
+        # All combinations of root and repo path.
+        base_expected_config = {
+            'path': nonroot_repo,
+            'url': url,
+            'gpg_sign': config.gpg_sign,
+            'gpg_homedir': config.gpg_homedir,
+            'gpg_verify': config.gpg_verify,
+            'gpg_trustedkeys': config.gpg_trustedkeys,
+            'sign_type': config.sign_type,
+            'sign_keyfiles': config.sign_keyfiles,
+            'sign_verify': config.sign_verify,
+            'sign_trustedkeyfile': config.sign_trustedkeyfile,
+            'update': config.update,
+            'update_hook': config.update_hook,
+        }
+        for root_path, repo_path, expected_repo_path in (
+            # Absolute repo path with no root.
+            (None, nonroot_repo, nonroot_repo),
+            # Relative repo path with no root.
+            (None, rel_nonroot_repo, rel_nonroot_repo),
+            # Absolute repo path with absolute root.
+            (root, root_repo, root_repo),
+            # Relative repo path with absolute root.
+            (root, rel_root_repo, root_repo),
+            # Absolute repo path with relative root.
+            (rel_root, root_repo, root_repo),
+            # Relative repo path with relative root.
+            (rel_root, rel_root_repo, root_repo),
+        ):
+            logger.debug(
+                f'Testing {root_path=}, {repo_path=}, {expected_repo_path=}',
+            )
+
+            expected_config = base_expected_config.copy()
+            expected_config['path'] = expected_repo_path
+            config.root = str(root_path) if root_path else None
+
+            repo_config = config.get_repo_config(repo_path, url)
+            assert dataclasses.asdict(repo_config) == expected_config
 
 
 class TestArgParser:

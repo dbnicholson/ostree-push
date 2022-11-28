@@ -120,10 +120,19 @@ def dest_repo(tmp_path):
 
 
 @pytest.fixture
-def receive_repo(dest_repo, source_server):
-    repo_path = str(dest_repo.path)
+def receiver():
     config = receive.OTReceiveConfig(update=False)
-    with receive.OTReceiveRepo(repo_path, source_server.url, config) as repo:
+    return receive.OTReceiver(config)
+
+
+@pytest.fixture
+def receive_repo(dest_repo, source_server):
+    config = receive.OTReceiveRepoConfig(
+        dest_repo.path,
+        source_server.url,
+        update=False,
+    )
+    with receive.OTReceiveRepo(config) as repo:
         yield repo
 
 
