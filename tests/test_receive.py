@@ -676,6 +676,136 @@ class TestReceiveRepo:
         refs = local_refs(receive_repo)
         assert refs.keys() == {'ref1', 'ref2'}
 
+    def test_receive_dry_run(self, tmp_files_path, receive_repo, source_repo,
+                             source_server):
+        random_commit(source_repo, tmp_files_path, 'ref1')
+        merged = receive_repo.receive(['ref1'], dry_run=True)
+        assert merged == {'ref1'}
+        refs = local_refs(receive_repo)
+        assert refs.keys() == set()
+
+    def test_receive_force(self, tmp_files_path, receive_repo, source_repo,
+                           source_server, caplog):
+        caplog.set_level(logging.WARNING, receive.logger.name)
+
+        # First make a commit and pull it directly so the destination
+        # has the exact same commit.
+        checksum = random_commit(
+            source_repo,
+            tmp_files_path,
+            'ref1',
+            timestamp=0,
+        )
+        opts = GLib.Variant('a{sv}', {
+            'refs': GLib.Variant('as', ['ref1']),
+        })
+        receive_repo.pull_with_options(source_repo.path.as_uri(), opts)
+        refs = local_refs(receive_repo)
+        assert refs == {'ref1': checksum}
+
+        # Non-forced receive will get nothing. There should be no
+        # warnings since the commits are exactly the same.
+        caplog.clear()
+        merged = receive_repo.receive(['ref1'])
+        assert merged == set()
+        refs = local_refs(receive_repo)
+        assert refs == {'ref1': checksum}
+        assert caplog.record_tuples == []
+
+        # Forced merge will make a new commit. This will have warnings
+        # about both timestamp and content.
+        caplog.clear()
+        merged = receive_repo.receive(['ref1'], force=True)
+        assert merged == {'ref1'}
+        refs = local_refs(receive_repo)
+        assert refs.keys() == {'ref1'}
+        assert refs['ref1'] != checksum
+        assert caplog.record_tuples == [
+            (
+                receive.logger.name, logging.WARNING,
+                f'ref ref1 remote rev {checksum} is not newer than '
+                f'current rev {checksum}'
+            ),
+            (
+                receive.logger.name, logging.WARNING,
+                f'ref ref1 remote commit {checksum} root equals {checksum}'
+            ),
+        ]
+
+        # Make a new commit with the same content and set the
+        # destination repo back to the original commit.
+        with oneshot_transaction(source_repo):
+            mtree = OSTree.MutableTree.new()
+            _, root, _ = source_repo.read_commit(checksum)
+            _, commit, _ = source_repo.load_commit(checksum)
+            source_repo.write_directory_to_mtree(root, mtree, None)
+            _, new_root = source_repo.write_mtree(mtree)
+            metadata = commit.get_child_value(0)
+            _, new_checksum = source_repo.write_commit_with_time(
+                checksum,
+                'Test commit',
+                None,
+                metadata,
+                new_root,
+                1,
+            )
+            source_repo.transaction_set_ref(None, 'ref1', new_checksum)
+        receive_repo.set_ref_immediate(None, 'ref1', checksum)
+
+        # Non-forced receive will get nothing but there will be a
+        # warning about the content.
+        caplog.clear()
+        merged = receive_repo.receive(['ref1'])
+        assert merged == set()
+        refs = local_refs(receive_repo)
+        assert refs == {'ref1': checksum}
+        assert caplog.record_tuples == [
+            (
+                receive.logger.name, logging.WARNING,
+                f'ref ref1 remote commit {new_checksum} root equals {checksum}'
+            ),
+        ]
+
+        # Forced merge will make a new commit.
+        caplog.clear()
+        merged = receive_repo.receive(['ref1'], force=True)
+        assert merged == {'ref1'}
+        refs = local_refs(receive_repo)
+        assert refs.keys() == {'ref1'}
+        assert refs['ref1'] != checksum
+
+        # Make a random commit in the destination so it's newer and has
+        # different content.
+        dest_checksum = random_commit(
+            receive_repo,
+            tmp_files_path,
+            'ref1',
+            timestamp=2,
+        )
+
+        # Non-forced receive will get nothing but there will be a
+        # warning about the timestamp.
+        caplog.clear()
+        merged = receive_repo.receive(['ref1'])
+        assert merged == set()
+        refs = local_refs(receive_repo)
+        assert refs == {'ref1': dest_checksum}
+        assert caplog.record_tuples == [
+            (
+                receive.logger.name, logging.WARNING,
+                f'ref ref1 remote rev {new_checksum} is not newer than '
+                f'current rev {dest_checksum}'
+            ),
+        ]
+
+        # Forced merge will make a new commit.
+        caplog.clear()
+        merged = receive_repo.receive(['ref1'], force=True)
+        assert merged == {'ref1'}
+        refs = local_refs(receive_repo)
+        assert refs.keys() == {'ref1'}
+        assert refs['ref1'] != dest_checksum
+
 
 class TestReceiver:
     """Tests for OTReceiver class"""
