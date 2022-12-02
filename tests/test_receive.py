@@ -723,12 +723,13 @@ class TestReceiveRepo:
         assert caplog.record_tuples == [
             (
                 receive.logger.name, logging.WARNING,
-                f'ref ref1 remote rev {checksum} is not newer than '
-                f'current rev {checksum}'
+                f'received ref1 commit {checksum} is not newer than '
+                f'current ref1 commit {checksum}'
             ),
             (
                 receive.logger.name, logging.WARNING,
-                f'ref ref1 remote commit {checksum} root equals {checksum}'
+                f'received ref1 commit {checksum} has the same content as '
+                f'current ref1 commit {checksum}'
             ),
         ]
 
@@ -762,7 +763,8 @@ class TestReceiveRepo:
         assert caplog.record_tuples == [
             (
                 receive.logger.name, logging.WARNING,
-                f'ref ref1 remote commit {new_checksum} root equals {checksum}'
+                f'received ref1 commit {new_checksum} has the same content '
+                f'as current ref1 commit {checksum}'
             ),
         ]
 
@@ -793,8 +795,8 @@ class TestReceiveRepo:
         assert caplog.record_tuples == [
             (
                 receive.logger.name, logging.WARNING,
-                f'ref ref1 remote rev {new_checksum} is not newer than '
-                f'current rev {dest_checksum}'
+                f'received ref1 commit {new_checksum} is not newer than '
+                f'current ref1 commit {dest_checksum}'
             ),
         ]
 

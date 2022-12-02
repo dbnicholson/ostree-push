@@ -726,14 +726,15 @@ class OTReceiveRepo(OSTree.Repo):
                     else:
                         if remote_timestamp <= current_timestamp:
                             logger.warning(
-                                'ref %s remote rev %s is not newer than '
-                                'current rev %s',
-                                ref, remote_rev, current_rev
+                                'received %s commit %s is not newer than '
+                                'current %s commit %s',
+                                ref, remote_rev, ref, current_rev
                             )
                         if current_root.equal(remote_root):
                             logger.warning(
-                                'ref %s remote commit %s root equals %s',
-                                ref, remote_rev, current_rev
+                                'received %s commit %s has the same content '
+                                'as current %s commit %s',
+                                ref, remote_rev, ref, current_rev
                             )
                         if force:
                             logger.info('Forcing merge of ref %s', ref)
