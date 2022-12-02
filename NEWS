@@ -1,3 +1,9 @@
+# 1.1.0 (2022-12-02)
+
+ostree-receive now supports optional per-repository configuration. This
+is useful if you have repositories that require different settings such
+as the key IDs to sign commits with.
+
 # 1.0.1 (2022-10-27)
 
 ostree-receive now supports ostree ed25519 signing and verification. See
