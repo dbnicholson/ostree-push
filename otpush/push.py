@@ -22,7 +22,7 @@
 
 ostree-push allows coherently publishing an ostree repo to a remote
 server. It works by opening an SSH connection to the remote server and
-initiating the ostree-receive service to pull from an HTTP server on the
+initiating the ostree-receive-1 service to pull from an HTTP server on the
 local host. This has a distinct advantage over using rsync where files
 can be pushed in the wrong order and there's no ability to push a subset
 of the refs in the local repo.
@@ -31,7 +31,7 @@ ostree-push will start an HTTP server and tunnel its port to the remote
 server. This allows publishing from a host that is not running an HTTP
 server and avoids any firewalls between the local and remote hosts.
 
-In either case, ostree-receive must be installed on the remote host to
+In either case, ostree-receive-1 must be installed on the remote host to
 pull from the tunnelled HTTP server.
 """
 
@@ -263,7 +263,16 @@ class SSHMultiplexer:
         # ValueError.
         return int(out)
 
-    def run(self, cmd):
+    def lookup_commands(self, commands):
+        """Pick the first command from the list that is available remotely"""
+        for command in commands:
+            ret = self.run(["command", "-v", command], check=False, text=True,
+                           capture_output=True)
+            if ret.returncode == 0:
+                return ret.stdout.strip()
+        raise OTPushError(f'No remote receive command found: {commands}')
+
+    def run(self, cmd, check=True, **subprocess_kwargs):
         """Run a command on the remote host using the master connection"""
         if self.master_proc is None:
             raise OTPushError('SSH master process not running')
@@ -273,11 +282,17 @@ class SSHMultiplexer:
             run_cmd += self.ssh_options
         run_cmd += [self.host] + cmd
         logger.debug('Executing ' + ' '.join(map(shlex.quote, cmd)))
-        subprocess.check_call(run_cmd)
+        return subprocess.run(run_cmd, check=check, **subprocess_kwargs)
+
+
+DEFAULT_COMMANDS = [
+    'ostree-receive-1',
+    'ostree-receive'
+]
 
 
 def push_refs(local_repo, dest, refs=None, ssh_options=None,
-              command='ostree-receive', dry_run=False):
+              command=None, dry_run=False):
     """Run ostree-receive on remote with a tunneled HTTP server
 
     Start a local HTTP server and tunnel its port to the remote host.
@@ -331,6 +346,9 @@ def push_refs(local_repo, dest, refs=None, ssh_options=None,
             # server and run ostree-receive there
             with SSHMultiplexer(dest.host, socket_path, ssh_options,
                                 user=dest.user, port=dest.port) as ssh:
+                if not command:
+                    command = ssh.lookup_commands(DEFAULT_COMMANDS)
+
                 remote_port = ssh.forward_port(http_port)
                 logger.info('Connected local HTTP port %d to remote port %d',
                             http_port, remote_port)
@@ -483,8 +501,12 @@ class OTPushArgParser(ArgumentParser):
             '--repo',
             help='local repository path (default: current directory)'
         )
-        self.add_argument('--command', default='ostree-receive',
-                          help='remote pull command (default: %(default)s)')
+        self.add_argument(
+            '--command', help=(
+                'remote pull command (default: ostree-receive-1, then fall '
+                'back to ostree-receive)'
+            )
+        )
         self.add_argument('-i', '-o', metavar='OPTION',
                           action=SSHOptAction,
                           help='options passed through to ssh')

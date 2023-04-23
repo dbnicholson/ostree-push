@@ -34,7 +34,11 @@ import os
 import shlex
 import sys
 
-ALLOWED_COMMAND = 'ostree-receive'
+ALLOWED_COMMAND_PREFIXES = [
+    ['command', '-v'],  # used to detect ostree-receive-1 vs. ostree-receive
+    ['ostree-receive-1'],
+    ['ostree-receive'],
+]
 PROG = os.path.basename(__file__)
 BINDIR = os.path.dirname(os.path.realpath(__file__))
 
@@ -50,7 +54,8 @@ elif argc != 3 or sys.argv[1] != '-c':
 
 # Make sure required command has been specified.
 args = shlex.split(sys.argv[2])
-if args[0] != ALLOWED_COMMAND:
+allowed = any(args[:len(a)] == a for a in ALLOWED_COMMAND_PREFIXES)
+if not allowed:
     print(f'{PROG}: Executing {args[0]} not allowed',  file=sys.stderr)
     sys.exit(1)
 
@@ -62,6 +67,9 @@ path_components = path_value.split(os.pathsep)
 if BINDIR not in path_components:
     path_components.append(BINDIR)
     env['PATH'] = os.pathsep.join(path_components)
+
+if args[0] == 'command':
+    args = ['sh', '-c', shlex.join(args)]
 
 # Execute the command
 try:

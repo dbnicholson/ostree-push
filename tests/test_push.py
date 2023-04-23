@@ -395,7 +395,7 @@ class TestArgParser:
         ap = push.OTPushArgParser()
         args = ap.parse_args(['host:repo'])
         assert args == argparse.Namespace(
-            command='ostree-receive',
+            command=None,  # autodetect ostree-receive-1 vs. ostree-receive
             dest=push.PushDest(host='host', repo='repo', user=None, port=None),
             dry_run=False,
             log_level=logging.INFO,
