@@ -225,12 +225,27 @@ class SSHMultiplexer:
             raise OTPushError(
                 f'SSH control socket {self.socket} does not exist')
 
+    def wait_for_exit(self, timeout):
+        try:
+            self.master_proc.wait(timeout)
+            return True
+        except subprocess.TimeoutExpired:
+            return False
+
     def stop(self):
+        wait_timeout = 20
         if self.master_proc is not None:
             if self.master_proc.poll() is None:
                 logger.debug('Stopping SSH master process %d',
                              self.master_proc.pid)
                 self.master_proc.terminate()
+                if self.wait_for_exit(wait_timeout):
+                    return
+                self.master_proc.kill()
+                if self.wait_for_exit(wait_timeout):
+                    return
+                logger.error('Failed to stop the SSH master process %d',
+                             self.master_proc.pid)
             self.master_proc = None
 
     def forward_port(self, port):
