@@ -6,3 +6,6 @@ filename =
     ./tests/dumpenv,
     ./tests/ostree-push,
     ./tests/ostree-receive
+
+# Exclude virtualenv.
+extend-exclude = .venv,venv

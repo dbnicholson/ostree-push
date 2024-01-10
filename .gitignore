@@ -3,6 +3,8 @@
 __pycache__
 /.pytest_cache/
 /.tox/
+/.venv/
 /build/
 /dist/
 /ostree_push.egg-info/
+/venv/
