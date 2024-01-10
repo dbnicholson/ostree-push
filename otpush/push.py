@@ -70,7 +70,8 @@ logger = logging.getLogger(__name__)
 RESOURCE_TIMEOUT = 60
 
 # Default remote commands to attempt.
-DEFAULT_COMMANDS = ('ostree-receive',)
+MAJOR = VERSION.split('.')[0]
+DEFAULT_COMMANDS = (f'ostree-receive-{MAJOR}', 'ostree-receive')
 
 
 class OTPushError(Exception):
