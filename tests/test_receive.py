@@ -1026,11 +1026,9 @@ class TestConfig:
         assert expected_log_record in caplog.record_tuples
 
     def test_load_invalid(self, tmp_path):
-        with pytest.raises(receive.OTReceiveConfigError) as excinfo:
+        # Passing a non-path as the config file should fail.
+        with pytest.raises(receive.OTReceiveConfigError, match='PathLike'):
             receive.OTReceiveConfig.load([True])
-        assert str(excinfo.value) == (
-            'expected str, bytes or os.PathLike object, not bool'
-        )
 
         path = tmp_path / 'ostree-receive.conf'
         data = {

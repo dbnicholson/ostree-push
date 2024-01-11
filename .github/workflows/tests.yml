@@ -102,6 +102,21 @@ jobs:
                 python3-devel \
                 python3-pip
 
+          # Python images are based on Debian stable but should have all
+          # the development tools to build native Python packages.
+          - name: Python 3 Latest
+            image: python:3-slim
+            setup: |
+              apt-get update
+              apt-get -y install \
+                flatpak \
+                gir1.2-ostree-1.0 \
+                libcairo2-dev \
+                libgirepository1.0-dev \
+                openssh-client \
+                openssh-server \
+                ostree
+
           - name: Ubuntu LTS
             image: ubuntu:latest
             setup: |
