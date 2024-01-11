@@ -36,7 +36,11 @@ import sys
 
 # Allow all possible ostree-receive installed names. Remember to add to
 # this tuple when bumping the major version.
-ALLOWED_COMMANDS = ('ostree-receive-1', 'ostree-receive')
+ALLOWED_COMMANDS = (
+    'ostree-receive-1',
+    'ostree-receive-0',
+    'ostree-receive',
+)
 PROG = os.path.basename(__file__)
 BINDIR = os.path.dirname(os.path.realpath(__file__))
 

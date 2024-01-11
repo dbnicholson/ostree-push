@@ -115,7 +115,9 @@ def test_wrong_args():
 def test_allowed_commands(shell_env_vars, tmp_shell, tmp_bindir):
     """Test when allowed and disallowed commands are requested"""
     # Allowed commands
-    allowed = (ostree_receive_versioned, 'ostree-receive')
+    allowed = [
+        f'ostree-receive-{major}' for major in range(int(MAJOR) + 1)
+    ] + ['ostree-receive']
     for name in allowed:
         cmd = (shell_abspath, '-c', name)
         receive = tmp_bindir / name
