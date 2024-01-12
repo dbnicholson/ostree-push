@@ -50,6 +50,7 @@ import os
 from pathlib import Path
 import shlex
 import subprocess
+import sys
 from tempfile import TemporaryDirectory
 import yaml
 
@@ -843,6 +844,16 @@ def main():
 
     receiver = OTReceiver(config)
     receiver.receive(args.repo, args.url, args.refs)
+
+
+def compat_main():
+    """Dispatch to legacy main if needed"""
+    # The repo path is an option in legacy receive.
+    if any(arg.startswith('--repo') for arg in sys.argv[1:]):
+        from . import receive_legacy
+        return receive_legacy.main()
+
+    return main()
 
 
 if __name__ == '__main__':

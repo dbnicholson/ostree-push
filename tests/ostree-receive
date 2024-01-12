@@ -11,4 +11,4 @@ logger.debug('sys.path=%s', ':'.join(sys.path))
 logger.debug('sys.argv=%s', sys.argv)
 
 from otpush import receive  # noqa: E402
-receive.main()
+sys.exit(receive.compat_main())

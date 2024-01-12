@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import pytest
 import time
+import sys
 import yaml
 
 from .util import (
@@ -1309,3 +1310,31 @@ class TestArgParser:
         assert args.log_level == 'WARNING'
         args = ap.parse_args(['--quiet', 'repo', 'url'])
         assert args.log_level == 'WARNING'
+
+
+def test_compat_main(monkeypatch):
+    """Check compat_main dispatching"""
+    from otpush import receive_legacy
+
+    monkeypatch.setattr(receive, 'main', lambda: 'current')
+    monkeypatch.setattr(receive_legacy, 'main', lambda: 'legacy')
+
+    with monkeypatch.context() as ctx:
+        ctx.setattr(sys, 'argv', ['ostree-receive'])
+        assert receive.compat_main() == 'current'
+
+    with monkeypatch.context() as ctx:
+        ctx.setattr(sys, 'argv', ['ostree-receive', '--opt'])
+        assert receive.compat_main() == 'current'
+
+    with monkeypatch.context() as ctx:
+        ctx.setattr(sys, 'argv', ['ostree-receive', '--opt', 'repo'])
+        assert receive.compat_main() == 'current'
+
+    with monkeypatch.context() as ctx:
+        ctx.setattr(sys, 'argv', ['ostree-receive', '--repo=repo'])
+        assert receive.compat_main() == 'legacy'
+
+    with monkeypatch.context() as ctx:
+        ctx.setattr(sys, 'argv', ['ostree-receive', '--opt', '--repo=repo'])
+        assert receive.compat_main() == 'legacy'
