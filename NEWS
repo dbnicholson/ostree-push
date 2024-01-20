@@ -1,3 +1,22 @@
+# 1.2.0 (2024-01-20)
+
+* ostree-push now waits for the SSH master process to exit and kills it
+  if necessary. This should help in situations where the process is slow
+  to exit and its temporary socket is deleted before that happens.
+  Thanks to Emanuele Aina for the fix.
+
+* ostree-receive has gained support for pre-0.1.1 ostree-push clients.
+  This allows deployments using the old protocol to upgrade ostree-push
+  on clients and servers independently. The ostree-receive entry point
+  on the server will now detect if the client is attempting to push
+  using the old or new processes and dispatch accordingly. Moving
+  forward, ostree-push will attempt to push to a versioned
+  ostree-receive on the server to ensure it's using a compatible
+  version. The old protocol support will be removed in a later version
+  after deployments have been given time to migrate to the new tunneled
+  pull process. Thanks to Emanuele Aina for diagnosing the problem and
+  implementing a compatibility scheme. See #11 for details.
+
 # 1.1.0 (2022-12-02)
 
 ostree-receive now supports optional per-repository configuration. This
