@@ -4,15 +4,20 @@ import pytest
 import shutil
 import subprocess
 
+from otpush import VERSION
+
 from .util import SCRIPTSDIR, TESTSDIR
 
 shell_abspath = os.path.join(SCRIPTSDIR, 'ostree-receive-shell')
 dumpenv_abspath = os.path.join(TESTSDIR, 'dumpenv')
 
+MAJOR = VERSION.split('.')[0]
+ostree_receive_versioned = f'ostree-receive-{MAJOR}'
+
 # Some tests can't be run if ostree-receive is in PATH
 skip_ostree_receive_in_path = pytest.mark.skipif(
-    shutil.which('ostree-receive') is not None,
-    reason="cannot test correctly with ostree-receive in PATH"
+    shutil.which(ostree_receive_versioned) is not None,
+    reason=f'cannot test correctly with {ostree_receive_versioned} in PATH',
 )
 
 
@@ -27,7 +32,7 @@ def tmp_bindir(tmp_path):
 @pytest.fixture
 def tmp_receive(tmp_bindir):
     """Copy dumpenv to a temporary ostree-receive"""
-    receive = tmp_bindir / 'ostree-receive'
+    receive = tmp_bindir / ostree_receive_versioned
     shutil.copy(dumpenv_abspath, receive)
     os.chmod(receive, 0o755)
     return receive
@@ -54,13 +59,13 @@ def shell_env_vars(tmp_bindir):
 
 def test_command_args(shell_env_vars, tmp_shell, tmp_receive):
     """Test how arguments are passed to ostree-receive"""
-    cmd = ('ostree-receive-shell', '-c', 'ostree-receive')
+    cmd = ('ostree-receive-shell', '-c', tmp_receive.name)
     proc = subprocess.run(cmd, check=True, env=shell_env_vars,
                           stdout=subprocess.PIPE)
     data = json.loads(proc.stdout.decode('utf-8'))
     assert data['args'] == [str(tmp_receive)]
 
-    cmd = ('ostree-receive-shell', '-c', 'ostree-receive -n foo bar')
+    cmd = ('ostree-receive-shell', '-c', f'{tmp_receive.name} -n foo bar')
     proc = subprocess.run(cmd, check=True, env=shell_env_vars,
                           stdout=subprocess.PIPE)
     data = json.loads(proc.stdout.decode('utf-8'))
@@ -71,7 +76,7 @@ def test_auto_path(shell_env_vars, tmp_receive):
     """Test that the shell's directory is appended to PATH"""
     # Here we use the shell in the source directory to ensure that it's
     # directory isn't in PATH. Otherwise it won't get appended.
-    cmd = (shell_abspath, '-c', 'ostree-receive')
+    cmd = (shell_abspath, '-c', tmp_receive.name)
     proc = subprocess.run(cmd, check=True, env=shell_env_vars,
                           stdout=subprocess.PIPE)
     data = json.loads(proc.stdout.decode('utf-8'))
@@ -107,12 +112,29 @@ def test_wrong_args():
         )
 
 
-def test_bad_command():
-    """Test when disallowed commands are requested"""
+def test_allowed_commands(shell_env_vars, tmp_shell, tmp_bindir):
+    """Test when allowed and disallowed commands are requested"""
+    # Allowed commands
+    allowed = [
+        f'ostree-receive-{major}' for major in range(int(MAJOR) + 1)
+    ] + ['ostree-receive']
+    for name in allowed:
+        cmd = (shell_abspath, '-c', name)
+        receive = tmp_bindir / name
+        shutil.copy(dumpenv_abspath, receive)
+        os.chmod(receive, 0o755)
+        proc = subprocess.run(cmd, check=True, env=shell_env_vars,
+                              stdout=subprocess.PIPE)
+        data = json.loads(proc.stdout.decode('utf-8'))
+        assert data['args'] == [str(receive)]
+
+    # Disallowed commands
     arguments = (
         ('foo',),
         ('foo', 'bar'),
+        (f'/usr/bin/{ostree_receive_versioned}'),
         ('/usr/bin/ostree-receive'),
+        (f'ostree-receive-{int(MAJOR) + 1}'),
     )
     for args in arguments:
         cmd = (shell_abspath, '-c', ' '.join(args))
@@ -130,7 +152,7 @@ def test_bad_command():
 @skip_ostree_receive_in_path
 def test_exec_errors(shell_env_vars, tmp_shell, tmp_receive, tmp_path):
     """Test how errors from execve are handled"""
-    cmd = ('ostree-receive-shell', '-c', 'ostree-receive')
+    cmd = ('ostree-receive-shell', '-c', tmp_receive.name)
 
     # Make the temporary ostree-receive non-executable to get a
     # permission denied error.
@@ -138,7 +160,7 @@ def test_exec_errors(shell_env_vars, tmp_shell, tmp_receive, tmp_path):
     proc = subprocess.run(cmd, env=shell_env_vars, stderr=subprocess.PIPE)
     assert proc.returncode == 126
     assert proc.stderr.decode('utf-8') == (
-        'ostree-receive-shell: ostree-receive: Permission denied\n'
+        f'ostree-receive-shell: {tmp_receive.name}: Permission denied\n'
     )
 
     # Make the temporary ostree-receive into a dangling symlink to get a
@@ -148,5 +170,6 @@ def test_exec_errors(shell_env_vars, tmp_shell, tmp_receive, tmp_path):
     proc = subprocess.run(cmd, env=shell_env_vars, stderr=subprocess.PIPE)
     assert proc.returncode == 127
     assert proc.stderr.decode('utf-8') == (
-        'ostree-receive-shell: ostree-receive: No such file or directory\n'
+        f'ostree-receive-shell: {tmp_receive.name}: '
+        'No such file or directory\n'
     )

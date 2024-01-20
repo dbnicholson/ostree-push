@@ -2,6 +2,8 @@ import logging
 import os
 import subprocess
 
+from otpush import VERSION
+
 from .util import (
     TESTSDIR,
     get_content_checksum,
@@ -10,7 +12,9 @@ from .util import (
     wipe_repo,
 )
 
-ostree_receive_abspath = os.path.join(TESTSDIR, 'ostree-receive')
+MAJOR = VERSION.split('.')[0]
+ostree_receive_versioned = f'ostree-receive-{MAJOR}'
+ostree_receive_abspath = os.path.join(TESTSDIR, ostree_receive_versioned)
 logger = logging.getLogger(__name__)
 
 # Skip all tests here if the required sshd is not available.
@@ -18,7 +22,7 @@ pytestmark = needs_sshd
 
 
 def run_push(source_repo, dest_repo, sshd, ssh_options, env_vars,
-             receive_config_path, command='ostree-receive', dest=None,
+             receive_config_path, command=ostree_receive_versioned, dest=None,
              options=None, refs=None, **popen_kwargs):
     dest = dest or f'ssh://{sshd.address}:{sshd.port}/{dest_repo.path}'
     options = options or []
@@ -147,5 +151,18 @@ def test_command_abspath(source_repo, dest_repo, sshd, ssh_options,
     )
     random_commit(source_repo, tmp_files_path, 'test')
     run_push(*args, command=ostree_receive_abspath)
+    _, receive_refs = dest_repo.list_refs()
+    assert receive_refs.keys() == {'test', 'ostree-metadata'}
+
+
+def test_unversioned(source_repo, dest_repo, sshd, ssh_options,
+                     cli_env_vars, receive_config_path, tmp_files_path):
+    """Test push with unversioned ostree-receive"""
+    args = (
+        source_repo, dest_repo, sshd, ssh_options, cli_env_vars,
+        receive_config_path
+    )
+    random_commit(source_repo, tmp_files_path, 'test')
+    run_push(*args, command='ostree-receive')
     _, receive_refs = dest_repo.list_refs()
     assert receive_refs.keys() == {'test', 'ostree-metadata'}

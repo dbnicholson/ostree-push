@@ -69,6 +69,10 @@ logger = logging.getLogger(__name__)
 # Timeout in seconds when waiting for ports or sockets
 RESOURCE_TIMEOUT = 60
 
+# Default remote commands to attempt.
+MAJOR = VERSION.split('.')[0]
+DEFAULT_COMMANDS = (f'ostree-receive-{MAJOR}', 'ostree-receive')
+
 
 class OTPushError(Exception):
     """Exceptions from ostree-push"""
@@ -292,11 +296,14 @@ class SSHMultiplexer:
 
 
 def push_refs(local_repo, dest, refs=None, ssh_options=None,
-              command='ostree-receive', dry_run=False):
+              commands=None, dry_run=False):
     """Run ostree-receive on remote with a tunneled HTTP server
 
     Start a local HTTP server and tunnel its port to the remote host.
-    Use this tunneled HTTP server as the URL for ostree_receive().
+    Use this tunneled HTTP server as the URL for ostree_receive(). The
+    remote command to be run is specied as an iterable of strings in the
+    commands argument. If multiple commands are specified, each command
+    is attempted until one is found on the remote host.
     """
     local_repo_path = local_repo.get_path().get_path()
 
@@ -315,6 +322,9 @@ def push_refs(local_repo, dest, refs=None, ssh_options=None,
             raise OTPushError(
                 f'Refs {" ".join(missing_refs)} not found in {local_repo_path}'
             )
+
+    if not commands:
+        commands = DEFAULT_COMMANDS
 
     summary = os.path.join(local_repo_path, 'summary')
     update_summary = False
@@ -351,14 +361,34 @@ def push_refs(local_repo, dest, refs=None, ssh_options=None,
                             http_port, remote_port)
                 remote_url = f'http://127.0.0.1:{remote_port}'
 
-                cmd = shlex.split(command)
-                if dry_run:
-                    cmd.append('-n')
-                cmd += [dest.repo, remote_url]
-                if refs is not None:
-                    cmd += refs
-                logger.debug('Remote command: %s', cmd)
-                ssh.run(cmd)
+                for command in commands:
+                    cmd = shlex.split(command)
+                    if dry_run:
+                        cmd.append('-n')
+                    cmd += [dest.repo, remote_url]
+                    if refs is not None:
+                        cmd += refs
+                    logger.debug('Remote command: %s', cmd)
+                    try:
+                        ssh.run(cmd)
+                        break
+                    except subprocess.CalledProcessError as err:
+                        # Ignore command not found errors to try the
+                        # next command.
+                        if err.returncode != 127:
+                            raise
+
+                        logger.debug(
+                            f'Command {cmd[0]} not found on remote host'
+                        )
+                else:
+                    # None of the commands were found.
+                    cmd_names = " ".join(
+                        [shlex.split(cmd)[0] for cmd in commands]
+                    )
+                    raise OTPushError(
+                        f'Could not find commands {cmd_names} on server'
+                    )
 
 
 PushDest = namedtuple('PushDest', ('host', 'repo', 'user', 'port'))
@@ -498,8 +528,18 @@ class OTPushArgParser(ArgumentParser):
             '--repo',
             help='local repository path (default: current directory)'
         )
-        self.add_argument('--command', default='ostree-receive',
-                          help='remote pull command (default: %(default)s)')
+        self.add_argument(
+            '--command',
+            metavar='COMMAND',
+            dest='commands',
+            action='append',
+            default=None,
+            help=(
+                'remote pull command. Can be specified multiple times to '
+                'attempt commands that may be missing '
+                f'(default: {" ".join(DEFAULT_COMMANDS)})'
+            ),
+        )
         self.add_argument('-i', '-o', metavar='OPTION',
                           action=SSHOptAction,
                           help='options passed through to ssh')
@@ -531,9 +571,14 @@ def main(argv=None):
         repo = OSTree.Repo.new_default()
     repo.open()
 
-    push_refs(repo, args.dest, refs=args.refs,
-              ssh_options=args.ssh_options, command=args.command,
-              dry_run=args.dry_run)
+    push_refs(
+        repo,
+        args.dest,
+        refs=args.refs,
+        ssh_options=args.ssh_options,
+        commands=args.commands,
+        dry_run=args.dry_run,
+    )
 
 
 if __name__ == '__main__':

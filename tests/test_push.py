@@ -220,7 +220,7 @@ class TestPushRefs:
         dest = push.PushDest(host=sshd.address, port=sshd.port,
                              repo=str(dest_repo.path), user=None)
         push.push_refs(source_repo, dest, refs=refs, dry_run=dry_run,
-                       ssh_options=ssh_options, command='dumpenv')
+                       ssh_options=ssh_options, commands=['dumpenv'])
 
         out, _ = capfd.readouterr()
         data = json.loads(out)
@@ -303,6 +303,36 @@ class TestPushRefs:
                      tmp_files_path, capfd):
         self.push_refs(source_repo, dest_repo, sshd, ssh_options, capfd,
                        dry_run=True)
+
+    def test_commands(self, source_repo, dest_repo, sshd, ssh_options,
+                      tmp_path):
+        dest = push.PushDest(
+            host=sshd.address,
+            port=sshd.port,
+            repo=str(dest_repo.path),
+            user=None,
+        )
+        nonexistent = str(tmp_path / 'nonexistent')
+
+        # Only specifying missing commands should fail.
+        with pytest.raises(push.OTPushError) as excinfo:
+            push.push_refs(
+                source_repo,
+                dest,
+                ssh_options=ssh_options,
+                commands=[nonexistent],
+            )
+        assert str(excinfo.value) == (
+            f'Could not find commands {nonexistent} on server'
+        )
+
+        # Specifying a successful command as a fallback should succeed.
+        push.push_refs(
+            source_repo,
+            dest,
+            ssh_options=ssh_options,
+            commands=[nonexistent, 'dumpenv'],
+        )
 
 
 class TestParseDest:
@@ -395,7 +425,7 @@ class TestArgParser:
         ap = push.OTPushArgParser()
         args = ap.parse_args(['host:repo'])
         assert args == argparse.Namespace(
-            command='ostree-receive',
+            commands=None,
             dest=push.PushDest(host='host', repo='repo', user=None, port=None),
             dry_run=False,
             log_level=logging.INFO,
@@ -468,15 +498,17 @@ class TestArgParser:
         args = ap.parse_args(['--repo', '/repo', 'host:repo'])
         assert args.repo == '/repo'
 
-    def test_command(self):
+    def test_commands(self):
         ap = push.OTPushArgParser()
         args = ap.parse_args(['--command=ls', 'host:repo'])
-        assert args.command == 'ls'
+        assert args.commands == ['ls']
         args = ap.parse_args(['--command=ostree-receive', 'host:repo'])
-        assert args.command == 'ostree-receive'
+        assert args.commands == ['ostree-receive']
         args = ap.parse_args(['--command', '/path/to/ostree-receive',
                               'host:repo'])
-        assert args.command == '/path/to/ostree-receive'
+        assert args.commands == ['/path/to/ostree-receive']
+        args = ap.parse_args(['--command=foo', '--command=bar', 'host:repo'])
+        assert args.commands == ['foo', 'bar']
 
     def test_ssh_options(self, capsys):
         ap = push.OTPushArgParser()

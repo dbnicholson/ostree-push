@@ -34,7 +34,13 @@ import os
 import shlex
 import sys
 
-ALLOWED_COMMAND = 'ostree-receive'
+# Allow all possible ostree-receive installed names. Remember to add to
+# this tuple when bumping the major version.
+ALLOWED_COMMANDS = (
+    'ostree-receive-1',
+    'ostree-receive-0',
+    'ostree-receive',
+)
 PROG = os.path.basename(__file__)
 BINDIR = os.path.dirname(os.path.realpath(__file__))
 
@@ -50,7 +56,7 @@ elif argc != 3 or sys.argv[1] != '-c':
 
 # Make sure required command has been specified.
 args = shlex.split(sys.argv[2])
-if args[0] != ALLOWED_COMMAND:
+if args[0] not in ALLOWED_COMMANDS:
     print(f'{PROG}: Executing {args[0]} not allowed',  file=sys.stderr)
     sys.exit(1)
 
